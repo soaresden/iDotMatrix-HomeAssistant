@@ -199,6 +199,21 @@ class ConnectionManager(metaclass=ConnectionRegistry):
                 filtered_devices.append((device.address, adv.local_name))
         return filtered_devices
 
+    STANDALONE_SCAN_TIMEOUT = 10.0
+
+    @staticmethod
+    async def find_device(address: str | None = None, timeout: float | None = None):
+        """Look a display up with this computer's own adapter, without Home
+        Assistant: by address, or else the first one advertising an iDotMatrix
+        name (IDM-...). None when nothing answers within the timeout."""
+        timeout = ConnectionManager.STANDALONE_SCAN_TIMEOUT if timeout is None else timeout
+        if address:
+            return await BleakScanner.find_device_by_address(address, timeout=timeout)
+        return await BleakScanner.find_device_by_filter(
+            lambda device, adv: str(adv.local_name or device.name or "").startswith(BLUETOOTH_DEVICE_NAME),
+            timeout=timeout,
+        )
+
     async def connectByAddress(self, address: str) -> None:
         self.address = address
         await self.connect()
@@ -248,11 +263,17 @@ class ConnectionManager(metaclass=ConnectionRegistry):
                                 self.logging.debug("BLE waiting for connectable advertisement address=%s", self.address)
                             if i < 14:
                                 await asyncio.sleep(1.0)
+                    else:
+                        device = await self.find_device(self.address)
 
                     if not device:
                         raise ConnectionError(
                             f"Device {self.address} unavailable in Home Assistant Bluetooth mesh. "
                             "Ensure it is powered and within range of an adapter or proxy."
+                            if self.hass else
+                            f"Device {self.address} not found by this computer's Bluetooth adapter. "
+                            "Ensure it is powered, in range and not connected to another controller "
+                            "(Home Assistant, the phone app)."
                         )
                     self.logging.info("Connecting to %s (%s)", device.name, device.address)
                     self._debug_device(device)

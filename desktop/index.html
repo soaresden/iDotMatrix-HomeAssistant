@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pixel Studio</title>
+<style>
+  /* Home Assistant's theme variables, which the panel uses. */
+  :root {
+    color-scheme: light dark;
+    --primary-color: #03a9f4;
+    --text-primary-color: #ffffff;
+    --primary-text-color: #212121;
+    --secondary-text-color: #727272;
+    --primary-background-color: #fafafa;
+    --secondary-background-color: #e5e5e5;
+    --card-background-color: #ffffff;
+    --divider-color: rgba(0, 0, 0, 0.12);
+    --success-color: #43a047;
+    --error-color: #db4437;
+    --warning-color: #ffa600;
+    --bar-h: 56px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --primary-text-color: #e1e1e1;
+      --secondary-text-color: #9b9b9b;
+      --primary-background-color: #111111;
+      --secondary-background-color: #282828;
+      --card-background-color: #1c1c1c;
+      --divider-color: rgba(225, 225, 225, 0.12);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    display: flex; flex-direction: column;
+    background: var(--primary-background-color); color: var(--primary-text-color);
+    font: 14px/1.4 Roboto, "Segoe UI", system-ui, sans-serif;
+  }
+  #bt {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+    min-height: var(--bar-h); padding: 8px 16px;
+    background: var(--card-background-color); border-bottom: 1px solid var(--divider-color);
+  }
+  #bt .status { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  #bt .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--secondary-text-color); }
+  #bt .dot.on { background: var(--success-color); }
+  #bt .dot.off { background: var(--error-color); }
+  #bt .dot.busy { background: var(--warning-color); }
+  #bt .grow { flex: 1; }
+  #bt select, #bt button {
+    font: inherit; height: 34px; padding: 0 10px; border-radius: 6px;
+    border: 1px solid var(--divider-color); background: var(--secondary-background-color); color: inherit;
+  }
+  #bt button { cursor: pointer; }
+  #bt button.primary { background: var(--primary-color); border-color: var(--primary-color); color: var(--text-primary-color); }
+  #bt button:disabled { opacity: 0.5; cursor: default; }
+  #bt label { display: flex; align-items: center; gap: 6px; color: var(--secondary-text-color); }
+  #message { width: 100%; color: var(--secondary-text-color); }
+  #message.error { color: var(--error-color); }
+  #message:empty { display: none; }
+  #studio { flex: 1; min-height: 0; overflow: auto; }
+  #studio idotmatrix-studio { display: block; height: 100%; }
+  #welcome { max-width: 560px; margin: 48px auto; padding: 0 16px; }
+  #welcome h2 { font-size: 20px; margin: 0 0 12px; }
+  #welcome ol { padding-left: 20px; }
+  #closed {
+    position: fixed; inset: 0; display: none; align-items: center; justify-content: center; padding: 16px;
+    background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 16px; text-align: center; z-index: 10;
+  }
+  @media (max-width: 600px) { #bt .grow { display: none; } #bt select { max-width: 46vw; } }
+</style>
+</head>
+<body>
+<div id="bt">
+  <span class="status"><span id="dot" class="dot"></span><span id="label">Aucun cadre choisi</span></span>
+  <span class="grow"></span>
+  <select id="devices" title="Cadre"><option value="">— cadre —</option></select>
+  <button id="scan">Chercher les cadres</button>
+  <label>Taille <select id="size"><option>64</option><option>32</option><option>16</option></select></label>
+  <button id="connect" class="primary">Connecter</button>
+  <button id="test" title="Envoyer un arc-en-ciel au cadre">Tester</button>
+  <div id="message"></div>
+</div>
+<div id="studio">
+  <div id="welcome">
+    <h2>Bienvenue</h2>
+    <ol>
+      <li>Allume ton cadre iDotMatrix et ferme l'appli du téléphone (le cadre n'accepte qu'un appareil à la fois).</li>
+      <li>Clique sur <b>Chercher les cadres</b>, choisis le tien et sa taille (64, 32 ou 16 pixels).</li>
+      <li>Clique sur <b>Connecter</b> : le studio s'ouvre ici. <b>Tester</b> envoie un arc-en-ciel au cadre.</li>
+    </ol>
+  </div>
+</div>
+<div id="closed">Pixel Studio est fermé (sa fenêtre noire a été fermée).<br>Relance PixelStudio.exe puis recharge cette page.</div>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+
+/** The parts of Home Assistant's websocket connection the panel uses. */
+class LocalConnection {
+  constructor(url) {
+    this.nextId = 1;
+    this.pending = new Map();
+    this.events = new Map();
+    this.ready = new Promise((resolve, reject) => {
+      const ws = new WebSocket(url);
+      ws.onopen = () => { this.ws = ws; resolve(); };
+      ws.onerror = () => reject(new Error("Pixel Studio ne répond pas"));
+      ws.onclose = () => { $("closed").style.display = "flex"; };
+      ws.onmessage = (ev) => this.receive(JSON.parse(ev.data));
+    });
+  }
+  receive(msg) {
+    if (msg.type === "event") { this.events.get(msg.id)?.(msg.event); return; }
+    const call = this.pending.get(msg.id);
+    if (!call) return;
+    this.pending.delete(msg.id);
+    if (msg.success) call.resolve(msg.result);
+    else call.reject(Object.assign(new Error(msg.error.message), msg.error));
+  }
+  send(msg, id) {
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      this.ws.send(JSON.stringify({ ...msg, id }));
+    });
+  }
+  async sendMessagePromise(msg) {
+    await this.ready;
+    return this.send(msg, this.nextId++);
+  }
+  async subscribeEvents(callback, eventType) {
+    await this.ready;
+    const id = this.nextId++;
+    this.events.set(id, callback);
+    await this.send({ type: "subscribe_events", event_type: eventType }, id);
+    return async () => {
+      this.events.delete(id);
+      await this.sendMessagePromise({ type: "unsubscribe_events", subscription: id });
+    };
+  }
+}
+
+const connection = new LocalConnection(`ws://${location.host}/api/websocket`);
+const hass = {
+  connection,
+  callWS: (msg) => connection.sendMessagePromise(msg),
+  fetchWithAuth: (url, init) => fetch(url, init),
+  // The desktop server needs no token; the panel only sends one for upload progress.
+  auth: { expired: false, data: { access_token: "desktop" }, refreshAccessToken: async () => {} },
+  states: {},
+  language: "fr",
+  user: { is_admin: true, name: "Pixel Studio" },
+};
+
+let state = { display: null, connected: false };
+let mounted = null;  // the display (address and size) the studio was opened for
+let busy = false;
+
+function say(text, error = false) {
+  $("message").textContent = text || "";
+  $("message").classList.toggle("error", error);
+}
+
+function addDevice(address, name) {
+  const select = $("devices");
+  let option = [...select.options].find((o) => o.value === address);
+  if (!option) {
+    option = new Option(`${name}  (${address})`, address);
+    option.dataset.name = name;
+    select.add(option);
+  }
+  return option;
+}
+
+function render() {
+  const display = state.display;
+  $("dot").className = "dot " + (busy ? "busy" : state.connected ? "on" : display ? "off" : "");
+  $("label").textContent = !display ? "Aucun cadre choisi"
+    : `${display.name} · ${display.size}×${display.size} · ${state.connected ? "connecté" : busy ? "connexion…" : "non connecté"}`;
+  const selected = $("devices").value;
+  const same = display && selected === display.address && Number($("size").value) === display.size;
+  $("connect").textContent = state.connected && same ? "Déconnecter" : "Connecter";
+  $("connect").disabled = busy || !selected;
+  $("test").disabled = busy || !display;
+  $("scan").disabled = busy;
+}
+
+async function mountStudio() {
+  if (mounted || !state.display) return;
+  mounted = { ...state.display };
+  await import(`/static/idotmatrix-studio.js?v=${Date.now()}`);
+  const studio = document.createElement("idotmatrix-studio");
+  studio.narrow = innerWidth < 870;
+  addEventListener("resize", () => { studio.narrow = innerWidth < 870; });
+  $("studio").replaceChildren(studio);
+  studio.hass = hass;
+}
+
+async function refresh() {
+  try {
+    state = await hass.callWS({ type: "desktop/state" });
+  } catch (err) {
+    return;
+  }
+  if (state.display) {
+    if (!$("devices").value) {
+      addDevice(state.display.address, state.display.name).selected = true;
+      $("size").value = String(state.display.size);
+    }
+    if (state.error && !state.connected && !busy) say(state.error, true);
+  }
+  render();
+  mountStudio();
+}
+
+$("scan").onclick = async () => {
+  busy = true; render(); say("Recherche des cadres à portée (5 s)…");
+  try {
+    const { devices } = await hass.callWS({ type: "desktop/scan" });
+    for (const d of devices) addDevice(d.address, d.name);
+    if (devices.length && (!$("devices").value || !state.display)) $("devices").value = devices[0].address;
+    say(devices.length ? `${devices.length} cadre(s) trouvé(s) : choisis le tien et sa taille, puis Connecter.`
+      : state.connected ? "Aucun autre cadre (un cadre connecté n'apparaît plus dans la recherche)."
+      : "Aucun cadre trouvé : allume-le, approche-le du PC et ferme l'appli iDotMatrix du téléphone.",
+      !devices.length && !state.connected);
+  } catch (err) {
+    say(`Recherche impossible : ${err.message} (le Bluetooth du PC est-il activé ?)`, true);
+  } finally {
+    busy = false; render();
+  }
+};
+
+$("connect").onclick = async () => {
+  const option = $("devices").selectedOptions[0];
+  const size = Number($("size").value);
+  const display = state.display;
+  if (state.connected && display && option.value === display.address && size === display.size) {
+    busy = true; render();
+    try { state = await hass.callWS({ type: "desktop/disconnect" }); say("Déconnecté : le téléphone peut reprendre le cadre."); }
+    catch (err) { say(err.message, true); }
+    busy = false; render();
+    return;
+  }
+  busy = true; render(); say(`Connexion à ${option.dataset.name || option.value}…`);
+  try {
+    state = await hass.callWS({ type: "desktop/connect", address: option.value, name: option.dataset.name, size });
+    say("Connecté.");
+  } catch (err) {
+    say(err.message, true);
+    await refresh();
+  } finally {
+    busy = false; render();
+  }
+  // The studio reads the display and its size when it opens.
+  if (mounted && state.display && (mounted.address !== state.display.address || mounted.size !== state.display.size)) {
+    location.reload();
+    return;
+  }
+  mountStudio();
+};
+
+$("test").onclick = async () => {
+  say("Envoi d'un arc-en-ciel au cadre…");
+  try {
+    const result = await hass.callWS({ type: "desktop/test" });
+    say(`Arc-en-ciel envoyé (${Math.round(result.size_bytes / 1024)} Ko) : il doit s'afficher sur le cadre.`);
+  } catch (err) {
+    say(err.message, true);
+  }
+};
+
+$("devices").onchange = render;
+$("size").onchange = render;
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>
