@@ -137,3 +137,5 @@ cython_debug/
 
 # Frontend build dependencies
 node_modules/
+# The official app's store key: local only, never published
+custom_components/idotmatrix/store_key.txt

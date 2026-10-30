@@ -10,8 +10,13 @@ class FullscreenColor:
 
     logging = logging.getLogger(__name__)
 
-    def __init__(self) -> None:
-        self.conn: ConnectionManager = ConnectionManager()
+    def __init__(self, conn: ConnectionManager | None = None) -> None:
+        self._conn = conn
+
+    @property
+    def conn(self) -> ConnectionManager:
+        # Without an explicit one, resolved when sending: see ConnectionManager.
+        return self._conn or ConnectionManager()
 
     async def setMode(
         self, r: int = 0, g: int = 0, b: int = 0

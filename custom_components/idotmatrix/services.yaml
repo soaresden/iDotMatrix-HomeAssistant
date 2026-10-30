@@ -75,6 +75,151 @@ display_gif:
           unit_of_measurement: seconds
           mode: box
 
+convert_media:
+  name: Convert media
+  description: >
+    Turn an image, GIF or video into a GIF sized and tuned for the display,
+    small enough to upload quickly. Videos need ffmpeg (bundled with Home
+    Assistant OS). Returns the output path and the settings that were used.
+  fields:
+    source:
+      required: true
+      description: Path to the image, GIF or video to convert.
+      example: "/media/uploads/cat.mp4"
+      selector:
+        text:
+    output:
+      required: false
+      description: Where to write the GIF. Defaults to /media/idotmatrix/<name>_<size>.gif.
+      example: "/media/idotmatrix/cat.gif"
+      selector:
+        text:
+    pixel_size:
+      required: false
+      description: Output size in pixels. Defaults to the configured screen size.
+      selector:
+        select:
+          options: ["16", "32", "64"]
+    fit:
+      required: false
+      description: crop fills the screen, fit keeps everything with black bars, stretch distorts.
+      default: crop
+      selector:
+        select:
+          options: ["crop", "fit", "stretch"]
+    crop:
+      required: false
+      description: Region of the source to keep, as fractions [x, y, width, height] (0-1).
+      example: "[0.25, 0, 0.5, 1]"
+      selector:
+        object:
+    start:
+      required: false
+      description: Start of the clip in seconds (videos and animations).
+      selector:
+        number:
+          min: 0
+          max: 36000
+          step: 0.1
+          unit_of_measurement: seconds
+          mode: box
+    end:
+      required: false
+      description: End of the clip in seconds.
+      selector:
+        number:
+          min: 0
+          max: 36000
+          step: 0.1
+          unit_of_measurement: seconds
+          mode: box
+    max_seconds:
+      required: false
+      description: Maximum clip length.
+      default: 12
+      selector:
+        number:
+          min: 0.1
+          max: 60
+          step: 0.1
+          unit_of_measurement: seconds
+    fps:
+      required: false
+      description: Frames per second sampled from videos (default 12). Lowered automatically if the GIF is too large.
+      selector:
+        number:
+          min: 1
+          max: 30
+    max_kb:
+      required: false
+      description: Size budget. Colors, frame rate and finally length are reduced until the GIF fits.
+      default: 96
+      selector:
+        number:
+          min: 4
+          max: 1024
+          unit_of_measurement: KB
+          mode: box
+    brightness:
+      required: false
+      default: 1.0
+      selector:
+        number:
+          min: 0
+          max: 3
+          step: 0.05
+    contrast:
+      required: false
+      default: 1.1
+      selector:
+        number:
+          min: 0
+          max: 3
+          step: 0.05
+    saturation:
+      required: false
+      default: 1.25
+      selector:
+        number:
+          min: 0
+          max: 3
+          step: 0.05
+    gamma:
+      required: false
+      description: Above 1 darkens mid-tones, below 1 lifts them.
+      default: 1.0
+      selector:
+        number:
+          min: 0.2
+          max: 5
+          step: 0.05
+    black_level:
+      required: false
+      description: Pixels darker than this are switched off instead of glowing faintly.
+      default: 16
+      selector:
+        number:
+          min: 0
+          max: 255
+    dither:
+      required: false
+      description: Error-diffusion dithering. Smoother gradients, but larger files and shimmer on the panel.
+      default: false
+      selector:
+        boolean:
+    boomerang:
+      required: false
+      description: Play the clip forward then backward for a seamless loop.
+      default: false
+      selector:
+        boolean:
+    display:
+      required: false
+      description: Show the result on the display once converted.
+      default: false
+      selector:
+        boolean:
+
 stop_gif_rotation:
   name: Stop GIF Rotation
   description: Stop the current GIF rotation if one is running.

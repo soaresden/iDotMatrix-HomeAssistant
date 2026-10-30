@@ -9,8 +9,13 @@ class Scoreboard:
 
     logging = logging.getLogger(__name__)
 
-    def __init__(self) -> None:
-        self.conn: ConnectionManager = ConnectionManager()
+    def __init__(self, conn: ConnectionManager | None = None) -> None:
+        self._conn = conn
+
+    @property
+    def conn(self) -> ConnectionManager:
+        # Without an explicit one, resolved when sending: see ConnectionManager.
+        return self._conn or ConnectionManager()
 
     async def setMode(self, count1: int, count2: int) -> Union[bool, bytearray]:
         """Set the scoreboard of the device.

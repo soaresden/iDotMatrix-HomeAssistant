@@ -9,17 +9,16 @@ import os
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.components.lovelace.const import CONF_RESOURCE_TYPE_WS, CONF_URL
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from .service_validation import service_schema
 
-from .const import DOMAIN, CONF_MAC
-from .client.connectionManager import ConnectionManager
+from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.TEXT, Platform.SELECT, Platform.BUTTON, Platform.NUMBER, Platform.SWITCH, Platform.LIGHT]
+PLATFORMS: list[Platform] = [Platform.TEXT, Platform.SELECT, Platform.BUTTON, Platform.NUMBER, Platform.SWITCH, Platform.LIGHT, Platform.IMAGE]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 _CARD_URL_PATH = "/idotmatrix"
 _CARD_FILENAME = "idotmatrix-card.js"
@@ -30,15 +29,24 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     return True
 
 
-async def _async_register_lovelace_resource(hass: HomeAssistant) -> None:
-    """Register the Lovelace card resource in storage mode."""
+async def _async_register_static_path(hass: HomeAssistant) -> None:
+    """Serve the bundled card and Pixel Studio panel from /idotmatrix."""
     domain_data = hass.data.setdefault(DOMAIN, {})
     if not domain_data.get("_static_path_registered"):
         www_path = os.path.join(os.path.dirname(__file__), "www")
+        # No long cache: the panel's URL only changes when Home Assistant
+        # starts, so a month-long cache kept the old panel after an update
+        # until the next restart, Ctrl+F5 or not. Browsers now revalidate
+        # (a 304 when unchanged).
         await hass.http.async_register_static_paths(
-            [StaticPathConfig(_CARD_URL_PATH, www_path, not hass.config.debug)]
+            [StaticPathConfig(_CARD_URL_PATH, www_path, False)]
         )
         domain_data["_static_path_registered"] = True
+
+
+async def _async_register_lovelace_resource(hass: HomeAssistant) -> None:
+    """Register the Lovelace card resource in storage mode."""
+    await _async_register_static_path(hass)
 
     lovelace_data = hass.data.get("lovelace")
     if not lovelace_data:
@@ -97,19 +105,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     hass.data.setdefault(DOMAIN, {})
     
-    # Initialize connection manager (singleton currently, might need adaptation per entry if multiple devices supported properly)
-    # For now, we store the address in the manager? Or pass it to entities?
-    # The client library assumes Singleton ConnectionManager. 
-    # We might need to refactor the client library eventually to support multiple instances.
-    # For now, we will assume one device per integration instance or update the singleton.
-    
     hass.data[DOMAIN][entry.entry_id] = entry.data
-    
-    # Initialize the Singleton ConnectionManager with the device address
-    manager = ConnectionManager()
-    manager.set_hass(hass)
-    manager.address = entry.data[CONF_MAC]
 
+    # Each display gets its own Bluetooth manager (created by its coordinator).
     from .coordinator import IDotMatrixCoordinator
     coordinator = IDotMatrixCoordinator(hass, entry)
     await coordinator.async_load_settings()
@@ -125,13 +123,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Automatically register the Lovelace card resource (storage mode only).
+    # Automatically register the Lovelace card resource (storage mode only)
+    # and the Pixel Studio sidebar panel (gallery, media conversion).
+    async def _register_frontend():
+        from .studio import async_setup_studio
+        await _async_register_lovelace_resource(hass)
+        await async_setup_studio(hass, _CARD_URL_PATH)
+
     async def _on_homeassistant_started(event):
         """Handle Home Assistant started event."""
-        await _async_register_lovelace_resource(hass)
+        await _register_frontend()
 
     if hass.is_running:
-        await _async_register_lovelace_resource(hass)
+        await _register_frontend()
     else:
         entry.async_on_unload(
             hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _on_homeassistant_started)
@@ -344,6 +348,71 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 )
 
     hass.services.async_register(DOMAIN, "display_gif", async_display_gif, schema=service_schema("display_gif"))
+
+    # Register convert_media service: any image / GIF / video -> device GIF
+    async def async_convert_media(call):
+        """Convert a media file into a device-ready GIF (and optionally show it)."""
+        import shutil
+        from .media import ConvertOptions, convert
+
+        source = call.data["source"]
+        coordinators = [
+            c for c in hass.data[DOMAIN].values() if isinstance(c, IDotMatrixCoordinator)
+        ]
+        screen_size = int(coordinators[0].text_settings.get("screen_size", 32)) if coordinators else 64
+        size = call.data.get("pixel_size", screen_size)
+
+        output = call.data.get("output")
+        if not output:
+            media_root = hass.config.media_dirs.get("local") or hass.config.path("media")
+            stem = os.path.splitext(os.path.basename(source))[0]
+            output = os.path.join(media_root, DOMAIN, f"{stem}_{size}.gif")
+        for path in (source, output):
+            if not hass.config.is_allowed_path(path):
+                raise HomeAssistantError(f"Path is not allowed: {path}")
+
+        options = ConvertOptions(size=size)
+        for key in ("fit", "start", "end", "max_seconds", "fps", "brightness",
+                    "contrast", "saturation", "gamma", "black_level", "dither", "boomerang"):
+            if key in call.data:
+                setattr(options, key, call.data[key])
+        if "crop" in call.data:
+            options.crop = tuple(call.data["crop"])
+        if "max_kb" in call.data:
+            options.max_bytes = call.data["max_kb"] * 1024
+
+        def run():
+            result = convert(source, options, ffmpeg=shutil.which("ffmpeg") or "ffmpeg")
+            os.makedirs(os.path.dirname(output), exist_ok=True)
+            with open(output, "wb") as handle:
+                handle.write(result.data)
+            return result
+
+        try:
+            result = await hass.async_add_executor_job(run)
+        except (OSError, ValueError) as err:
+            raise HomeAssistantError(f"Could not convert {source}: {err}") from err
+
+        if call.data["display"]:
+            for coordinator in coordinators:
+                await coordinator.async_display_gif(path=output)
+
+        return {
+            "path": output,
+            "size_bytes": result.size_bytes,
+            "frames": result.frames,
+            "duration_ms": result.duration_ms,
+            "colors": result.colors,
+            "frame_step": result.frame_step,
+        }
+
+    hass.services.async_register(
+        DOMAIN,
+        "convert_media",
+        async_convert_media,
+        schema=service_schema("convert_media"),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
 
     # Register stop_gif_rotation service
     async def async_stop_gif_rotation(call):
@@ -687,7 +756,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await coordinator.async_shutdown()
     from .coordinator import IDotMatrixCoordinator
     if not any(isinstance(value, IDotMatrixCoordinator) for value in hass.data[DOMAIN].values()):
+        from .studio import async_unload_studio
+        async_unload_studio(hass)
         for name in list(hass.services.async_services().get(DOMAIN, {})):
             hass.services.async_remove(DOMAIN, name)
         hass.data[DOMAIN].pop("_services_registered", None)
+    elif (studio := hass.data[DOMAIN].get("_studio")) is not None:
+        studio.sync_frames()  # stop this display's routine and schedule
     return True

@@ -161,8 +161,7 @@ async def test_shutdown_rejects_queued_writes(coordinator):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("method,args", [("uploadSingleRaw", ("unused.gif",)), ("uploadBatch", (["unused.gif"],))])
 async def test_upload_cancellation_propagates(method, args):
-    gif = Gif()
-    gif.conn = SimpleNamespace(connect=AsyncMock(side_effect=asyncio.CancelledError()))
+    gif = Gif(SimpleNamespace(connect=AsyncMock(side_effect=asyncio.CancelledError())))
     with pytest.raises(asyncio.CancelledError):
         await getattr(gif, method)(*args)
 
@@ -170,9 +169,8 @@ async def test_upload_cancellation_propagates(method, args):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("fail_at", [0, 1])
 async def test_batch_aborts_on_failed_setup(fail_at):
-    gif = Gif()
     results = [True] * fail_at + [False]
-    gif.conn = SimpleNamespace(connect=AsyncMock(), send=AsyncMock(side_effect=results))
+    gif = Gif(SimpleNamespace(connect=AsyncMock(), send=AsyncMock(side_effect=results)))
     assert await gif.uploadBatch(["never-read.gif"]) is False
     assert gif.conn.send.await_count == fail_at + 1
 
@@ -336,6 +334,29 @@ async def test_stop_gif_service_resets_native_carousel(coordinator, monkeypatch)
     reset.assert_awaited_once()
     assert coordinator._gif_cfg is None
     assert coordinator._carousel_active is False
+
+
+@pytest.mark.asyncio
+async def test_single_uploads_only_reset_the_panel_when_a_carousel_may_run(coordinator, monkeypatch):
+    """The reset shows the panel's gradient for the whole upload: after a
+    restart it is only sent when the saved state says a carousel ran."""
+    from PIL import Image
+    from custom_components.idotmatrix.weather import frames_to_gif
+
+    reset = AsyncMock(return_value=True)
+    upload = AsyncMock(return_value=True)
+    monkeypatch.setattr(module.Common, "reset", reset)
+    monkeypatch.setattr(module.IDMGif, "uploadSingleRaw", upload)
+    monkeypatch.setattr(module.asyncio, "sleep", AsyncMock())
+    gif = frames_to_gif([Image.new("RGB", (32, 32), (200, 0, 0))], 100)
+
+    coordinator.text_settings.pop("carousel_active", None)  # never saved: unknown
+    assert await coordinator._upload_single(gif)
+    assert reset.await_count == 1
+    # The new state goes with the settings that survive a restart.
+    assert coordinator.text_settings["carousel_active"] is False
+    assert await coordinator._upload_single(gif)
+    assert reset.await_count == 1
 
 
 @pytest.mark.asyncio

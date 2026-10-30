@@ -21,8 +21,8 @@ from homeassistant.helpers.event import (
     async_track_time_interval,
 )
 
-from .const import DOMAIN, CONF_DISPLAY_MODE, DISPLAY_MODE_DESIGN, DISPLAY_MODE_TEXT
-from .client.connectionManager import ConnectionManager
+from .const import DOMAIN, CONF_DISPLAY_MODE, CONF_MAC, DISPLAY_MODE_DESIGN, DISPLAY_MODE_TEXT
+from .client.connectionManager import ConnectionManager, TransferRejectedError
 from bleak.exc import BleakError
 from .client.modules.text import Text
 from .client.modules.image import Image as IDMImage
@@ -31,7 +31,7 @@ from .client.modules.clock import Clock
 from .client.modules.common import Common
 from .client.modules.fullscreenColor import FullscreenColor
 from .clockface import ClockFaceData, render_analog_gif, render_clockface_gif
-from .weather import WeatherData, render_weather_gif, normalize_condition
+from .weather import WeatherData, frames_to_gif, render_weather_gif, normalize_condition
 from .bitcoin import TickerData, render_bitcoin_gif
 from .co2 import CO2Data, render_co2_gif
 from .power import PowerData, render_power_gif
@@ -39,6 +39,7 @@ from .thermostat import ThermostatData, ZoneState, render_thermostat_gif
 from .sun import SunData, render_sun_gif
 from .moon import MoonData, moon_age, render_moon_gif
 from .message import MessageSpec, render_message_gif
+from .preview import color_preview, file_preview, image_preview, render_led_preview
 
 
 from homeassistant.helpers import template
@@ -67,6 +68,23 @@ STORAGE_KEY_PREFIX = "idotmatrix_settings_"
 ENTITY_REGEX = re.compile(r"states\(['\"]([a-z_]+\.[a-z0-9_]+)['\"]\)")
 
 
+# GIFs bigger than this take more than a few packets: the panel freezes on the
+# old animation while they arrive, so their first image goes ahead of them.
+FIRST_FRAME_AHEAD_BYTES = 12 * 1024
+
+
+def first_frame_still(path: str) -> str | None:
+    """A one-image GIF of a big GIF's first frame, in a temp file (None for small GIFs)."""
+    if os.path.getsize(path) <= FIRST_FRAME_AHEAD_BYTES:
+        return None
+    with Image.open(path) as image:
+        frame = image.convert("RGB")
+    fd, still = tempfile.mkstemp(suffix=".gif")
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(frames_to_gif([frame], 1000, colors=256))
+    return still
+
+
 class IDotMatrixCoordinator(DataUpdateCoordinator):
     """Class to manage fetching iDotMatrix data."""
 
@@ -80,6 +98,9 @@ class IDotMatrixCoordinator(DataUpdateCoordinator):
             update_interval=timedelta(seconds=60),
         )
         self.entry = entry
+        # This display's own Bluetooth link: several displays stay connected at once.
+        self.conn = ConnectionManager.for_address(entry.data.get(CONF_MAC))
+        self.conn.set_hass(hass)
         self._store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY_PREFIX}{entry.entry_id}")
         self._entity_unsubs: list = []  # Entity state change unsubscribe callbacks
         self.display_mode = entry.options.get(CONF_DISPLAY_MODE, DISPLAY_MODE_DESIGN)
@@ -108,9 +129,16 @@ class IDotMatrixCoordinator(DataUpdateCoordinator):
 
         # True while the device runs the batch carousel: it ignores single
         # GIF uploads in that state (Feb 2026 finding), so the next single
-        # upload must send the 8none1 reset first to escape it. Starts True
-        # because the device state after an HA restart is unknown.
-        self._carousel_active = True
+        # upload must send the 8none1 reset first to escape it. The reset
+        # shows the panel's gradient for the whole upload, so the state is
+        # kept with the settings across restarts (``_carousel_active``);
+        # unknown means True.
+
+        # LED-style render of the last content sent (the device can't be
+        # read back). None when the device draws it itself (native text,
+        # firmware clock) or nothing was sent since startup.
+        self.preview: bytes | None = None
+        self.preview_updated = dt_util.utcnow()
 
         # GIF rotation tracking
         self._gif_rotation_task: asyncio.Task | None = None
@@ -679,14 +707,47 @@ class IDotMatrixCoordinator(DataUpdateCoordinator):
             _LOGGER.debug("Loaded persisted settings keys: %s", sorted(data))
             self.text_settings.update(data)
             self.display_mode = self.text_settings.get("display_mode", self.display_mode)
+        # The panel keeps showing its last content across restarts: so does the preview.
+        self.preview = await self.hass.async_add_executor_job(self._read_preview)
+
+    def _preview_path(self) -> str:
+        return self.hass.config.path(".storage", f"{DOMAIN}_preview_{self.entry.entry_id}.gif")
+
+    def _read_preview(self) -> bytes | None:
+        try:
+            with open(self._preview_path(), "rb") as fh:
+                return fh.read()
+        except OSError:
+            return None
+
+    def _write_preview(self, data: bytes | None) -> None:
+        try:
+            if data is None:
+                if os.path.exists(self._preview_path()):
+                    os.remove(self._preview_path())
+            else:
+                with open(self._preview_path(), "wb") as fh:
+                    fh.write(data)
+        except OSError as err:
+            _LOGGER.debug("Could not keep the preview: %s", err)
 
     async def async_save_settings(self) -> None:
         """Save settings to storage."""
         await self._store.async_save(self.text_settings)
 
+    @property
+    def _carousel_active(self) -> bool:
+        return bool(self.text_settings.get("carousel_active", True))
+
+    @_carousel_active.setter
+    def _carousel_active(self, active: bool) -> None:
+        if self.text_settings.get("carousel_active") != active:
+            self.text_settings["carousel_active"] = active
+            self._store.async_delay_save(lambda: self.text_settings, 1.0)
+
     async def _async_update_data(self):
         """Fetch data from the device."""
-        client = ConnectionManager().client
+        client = self.conn.client
         return {"connected": bool(client and client.is_connected)}
 
     async def async_update_device(self) -> None:
@@ -716,7 +777,7 @@ class IDotMatrixCoordinator(DataUpdateCoordinator):
                 # Standard Scroller
                 self._image_mode_active = False
                 self._image_signature = None
-                await Text().setMode(
+                await Text(self.conn).setMode(
                     text=text,
                     font_size=int(settings.get("font_size", 10)), 
                     font_path=settings.get("font"),
@@ -729,6 +790,7 @@ class IDotMatrixCoordinator(DataUpdateCoordinator):
                     spacing=settings.get("spacing", 1),
                     proportional=settings.get("proportional", True)
                 )
+                await self._set_preview(None)
         else:
             self._image_mode_active = False
             self._image_signature = None
@@ -742,7 +804,7 @@ class IDotMatrixCoordinator(DataUpdateCoordinator):
             show_date = settings.get("clock_date", True)
             
                 
-            await Clock().setMode(
+            await Clock(self.conn).setMode(
                 style=style,
                 visibleDate=show_date,
                 hour24=h24,
@@ -750,12 +812,30 @@ class IDotMatrixCoordinator(DataUpdateCoordinator):
                 g=c[1],
                 b=c[2]
             )
-            
+            await self._set_preview(None)
+
         # Notify listeners to update UI states
         self.async_set_updated_data(self.data)
         
         # Save persistence
         await self.async_save_settings()
+
+    async def _set_preview(self, render, *args) -> None:
+        """Refresh the preview entity with what the panel now shows.
+
+        ``render(*args)`` builds the preview in the executor; ``None`` clears
+        it. A failed render never breaks the display call that triggered it.
+        """
+        data = None
+        if render is not None:
+            try:
+                data = await self.hass.async_add_executor_job(render, *args)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("Could not render preview: %s", err)
+        self.preview = data
+        self.preview_updated = dt_util.utcnow()
+        self.async_update_listeners()
+        await self.hass.async_add_executor_job(self._write_preview, data)
 
     async def _upload_image(self, image, screen_size):
         """Upload changed pixels without clearing DIY mode on every refresh."""
@@ -770,13 +850,14 @@ class IDotMatrixCoordinator(DataUpdateCoordinator):
         path = await self.hass.async_add_executor_job(save)
         try:
             if not self._image_mode_active:
-                if await IDMImage().setMode(1) is False:
+                if await IDMImage(self.conn).setMode(1) is False:
                     raise HomeAssistantError("Could not enter image mode")
-            if await IDMImage().uploadProcessed(path, pixel_size=screen_size) is False:
+            if await IDMImage(self.conn).uploadProcessed(path, pixel_size=screen_size) is False:
                 self._image_mode_active = False
                 raise HomeAssistantError("Image upload failed")
             self._image_mode_active = True
             self._image_signature = signature
+            await self._set_preview(image_preview, image)
             return True
         finally:
             await self.hass.async_add_executor_job(os.remove, path)
@@ -946,6 +1027,7 @@ class IDotMatrixCoordinator(DataUpdateCoordinator):
         self,
         path: str,
         rotation_interval: int = 5,
+        files: list[str] | None = None,
     ) -> None:
         """Display GIF(s) on the device.
 
@@ -954,6 +1036,9 @@ class IDotMatrixCoordinator(DataUpdateCoordinator):
             rotation_interval: Carousel interval in seconds - how long each GIF
                                displays before advancing to the next (batch mode).
                                Common values: 5, 10, 30, 60, 255. Defaults to 5.
+            files: Explicit carousel (up to 12 GIF paths, in this order)
+                   instead of ``path``; the interval may then exceed 255 s,
+                   like the Android app's 300 s option.
         """
         self._clear_face_tracking()
         # Stop any existing rotation, weather, or ticker mode
@@ -971,15 +1056,16 @@ class IDotMatrixCoordinator(DataUpdateCoordinator):
         generation = self._mode_generation
         self._image_mode_active = False
         self._image_signature = None
-        self._gif_cfg = {"path": path, "rotation_interval": rotation_interval}
+        self._gif_cfg = {"path": path, "rotation_interval": rotation_interval, "files": files}
 
         screen_size = int(self.text_settings.get("screen_size", 32))
-        # Clamp interval to uint8 range
-        interval = max(1, min(255, int(rotation_interval)))
+        # The service keeps the historical uint8 range; explicit carousels
+        # use the full 16-bit interval field.
+        interval = max(1, min(0xFFFF if files else 255, int(rotation_interval)))
 
         # Check path type in executor to avoid blocking
-        is_file = await self.hass.async_add_executor_job(os.path.isfile, path)
-        is_dir = await self.hass.async_add_executor_job(os.path.isdir, path)
+        is_file = not files and await self.hass.async_add_executor_job(os.path.isfile, path)
+        is_dir = not files and await self.hass.async_add_executor_job(os.path.isdir, path)
 
         # Determine if path is a file or directory
         if is_file:
@@ -990,19 +1076,37 @@ class IDotMatrixCoordinator(DataUpdateCoordinator):
             _LOGGER.debug(f"Uploading single GIF (single protocol): {path}")
 
             async def _reset_and_upload_single():
-                # Reset first (packets found by 8none1): clears any wedged
-                # upload/parser state left by a previously aborted stream.
-                await Common().reset()
-                await asyncio.sleep(0.6)
-                ok = await IDMGif().uploadSingleRaw(path)
+                # The reset (packets found by 8none1) shows the panel's
+                # gradient for the whole upload, so only leave carousel mode
+                # with it; ACK-gated transfers no longer wedge the parser and
+                # the old content stays up while the new one loads, like the
+                # Android app.
+                if self._carousel_active:
+                    await Common(self.conn).reset()
+                    await asyncio.sleep(0.6)
+                self.conn.transfer_label = os.path.basename(path)
+                # The panel stops animating while a GIF arrives (minutes for a
+                # big one): its first image goes first, in one packet, so the
+                # new content shows at once instead of a frozen old one.
+                still = await self.hass.async_add_executor_job(first_frame_still, path)
+                if still:
+                    try:
+                        await IDMGif(self.conn).uploadSingleRaw(still)
+                    finally:
+                        await self.hass.async_add_executor_job(os.remove, still)
+                ok = await IDMGif(self.conn).uploadSingleRaw(path)
                 if ok:
                     self._carousel_active = False
                 return ok
 
-            success = await self._device_call(_reset_and_upload_single, generation=generation)
+            try:
+                success = await self._device_call(_reset_and_upload_single, generation=generation)
+            except TransferRejectedError as err:
+                raise HomeAssistantError(f"{err}: {path}") from err
             if not success:
                 raise HomeAssistantError(f"Single GIF upload failed: {path}")
-        elif is_dir:
+            await self._set_preview(file_preview, path)
+        elif is_dir or files:
             # Folder mode - find all GIF files (in executor to avoid blocking)
             def find_gifs(folder):
                 files = [
@@ -1013,7 +1117,7 @@ class IDotMatrixCoordinator(DataUpdateCoordinator):
                 random.shuffle(files)
                 return files
 
-            gif_files = await self.hass.async_add_executor_job(find_gifs, path)
+            gif_files = list(files) if files else await self.hass.async_add_executor_job(find_gifs, path)
 
             if not gif_files:
                 raise HomeAssistantError(f"No GIF files found in {path}")
@@ -1035,20 +1139,27 @@ class IDotMatrixCoordinator(DataUpdateCoordinator):
                     raise HomeAssistantError("Display mode changed or device disconnected")
                 # Reset first (packets found by 8none1): clears any wedged
                 # upload/parser state left by a previously aborted stream.
-                await Common().reset()
+                await Common(self.conn).reset()
                 await asyncio.sleep(0.6)
                 # Mark before streaming: even a partial batch leaves the
                 # device in carousel mode.
                 self._carousel_active = True
-                success = await IDMGif().uploadBatch(
-                    batch, pixel_size=screen_size, interval=interval, raw=True
-                )
+                try:
+                    self.conn.transfer_label = "carrousel"
+                    success = await IDMGif(self.conn).uploadBatch(
+                        batch, pixel_size=screen_size, interval=interval, raw=True
+                    )
+                except TransferRejectedError as err:
+                    raise HomeAssistantError(f"Batch GIF upload failed: {err}") from err
             if not success:
                 raise HomeAssistantError("Batch GIF upload failed")
+            # The carousel starts with the first GIF of the batch.
+            await self._set_preview(file_preview, batch[0])
         else:
             raise HomeAssistantError(f"Path does not exist: {path}")
 
-    async def _upload_single(self, gif_bytes: bytes, generation: int | None = None) -> bool:
+    async def _upload_single(self, gif_bytes: bytes, generation: int | None = None,
+                             label: str | None = None) -> bool:
         """Upload a single rendered GIF, escaping the device's carousel mode
         first if it's running (the device ignores single uploads
         mid-carousel; the 8none1 reset verifiably drops it back to idle).
@@ -1068,15 +1179,23 @@ class IDotMatrixCoordinator(DataUpdateCoordinator):
             tmp_path = await self.hass.async_add_executor_job(write_tmp)
             try:
                 if self._carousel_active:
-                    await Common().reset()
+                    await Common(self.conn).reset()
                     await asyncio.sleep(0.6)
-                ok = await IDMGif().uploadSingleRaw(tmp_path)
+                try:
+                    self.conn.transfer_label = label
+                    ok = await IDMGif(self.conn).uploadSingleRaw(tmp_path)
+                except TransferRejectedError as err:
+                    _LOGGER.warning("Device rejected the rendered GIF: %s", err)
+                    return False
                 if ok:
                     self._carousel_active = False
                 return ok
             finally:
                 await self.hass.async_add_executor_job(os.remove, tmp_path)
-        return await self._device_call(run, generation=generation)
+        ok = await self._device_call(run, generation=generation)
+        if ok:
+            await self._set_preview(render_led_preview, gif_bytes)
+        return ok
 
     async def _device_call(self, fn, *args, generation=None, **kwargs):
         """Finish an active write before propagating cancellation to its caller."""
@@ -1104,6 +1223,9 @@ class IDotMatrixCoordinator(DataUpdateCoordinator):
                 return False
             if self._suspended:
                 raise HomeAssistantError("Device disconnected; press Reconnect before sending updates")
+            # Runs in its own task: modules built without a connection
+            # (entities, Studio) reach this display, not another one.
+            ConnectionManager.bind(self.conn)
             return await fn(*args, **kwargs)
 
     def _schedule_display_refresh(self, coroutine):
@@ -1127,7 +1249,7 @@ class IDotMatrixCoordinator(DataUpdateCoordinator):
         if self._gif_cfg is None:
             return
         await self.async_stop_gif_rotation()
-        if await self._device_call(Common().reset) is False:
+        if await self._device_call(Common(self.conn).reset) is False:
             raise HomeAssistantError("Could not stop the GIF display")
         self._carousel_active = False
         self._image_mode_active = False
@@ -1142,18 +1264,18 @@ class IDotMatrixCoordinator(DataUpdateCoordinator):
         await self._stop_modes_for_message()
         await self.async_stop_message_mode()
         async with self._device_lock:
-            await ConnectionManager().disconnect()
+            await self.conn.disconnect()
         self.async_set_updated_data({"connected": False})
 
     async def async_reconnect_device(self):
         """Resume user-requested writes after an explicit disconnect."""
         self._suspended = False
         try:
-            await self._device_call(ConnectionManager().connect)
+            await self._device_call(self.conn.connect)
         except (BleakError, ConnectionError) as err:
             self.async_set_updated_data({"connected": False})
             raise HomeAssistantError(f"Could not connect to iDotMatrix: {err}") from err
-        client = ConnectionManager().client
+        client = self.conn.client
         if not client or not client.is_connected:
             raise HomeAssistantError("Device unavailable; check its power and Bluetooth range")
         self.async_set_updated_data({"connected": True})
@@ -1164,9 +1286,10 @@ class IDotMatrixCoordinator(DataUpdateCoordinator):
         await self.async_stop_message_mode()
         self._image_mode_active = False
         self._image_signature = None
-        result = await self._device_call(FullscreenColor().setMode, *color)
+        result = await self._device_call(FullscreenColor(self.conn).setMode, *color)
         if result is False:
             raise HomeAssistantError("Could not display fullscreen color")
+        await self._set_preview(color_preview, tuple(color), int(self.text_settings.get("screen_size", 32)))
         return True
 
     async def async_shutdown(self):
@@ -1184,7 +1307,7 @@ class IDotMatrixCoordinator(DataUpdateCoordinator):
         if self._device_tasks:
             await asyncio.gather(*tuple(self._device_tasks), return_exceptions=True)
         async with self._device_lock:
-            await ConnectionManager().disconnect()
+            await self.conn.disconnect()
 
     async def _upload_gif(self, file_path: str, pixel_size: int) -> bool:
         """Upload a single GIF to the device with retry logic."""
@@ -1193,14 +1316,15 @@ class IDotMatrixCoordinator(DataUpdateCoordinator):
         for attempt in range(max_retries):
             try:
                 # Check if connection manager has a connected client
-                conn = ConnectionManager()
+                conn = self.conn
                 if conn.client and not conn.client.is_connected:
                     _LOGGER.warning("Device disconnected, attempting reconnect...")
 
-                gif_instance = IDMGif()
+                gif_instance = IDMGif(self.conn)
                 result = await gif_instance.uploadProcessed(file_path, pixel_size=pixel_size)
                 if result:
                     _LOGGER.debug(f"Successfully uploaded GIF: {file_path}")
+                    await self._set_preview(file_preview, file_path)
                     return True
                 else:
                     _LOGGER.warning(f"Upload returned false for: {file_path}")
@@ -2267,7 +2391,7 @@ class IDotMatrixCoordinator(DataUpdateCoordinator):
             if not self.text_settings.get("is_on", True):
                 # Wake a darkened panel so the message is actually seen
                 try:
-                    await self._device_call(Common().screenOn, generation=generation)
+                    await self._device_call(Common(self.conn).screenOn, generation=generation)
                     self.text_settings["is_on"] = True
                     woke = True
                 except Exception as err:  # noqa: BLE001
@@ -2311,7 +2435,7 @@ class IDotMatrixCoordinator(DataUpdateCoordinator):
             await self._restore_mode(prev)
         if woke:
             try:
-                await self._device_call(Common().screenOff)
+                await self._device_call(Common(self.conn).screenOff)
                 self.text_settings["is_on"] = False
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning(f"Could not darken screen after message: {err}")
@@ -2355,12 +2479,12 @@ class IDotMatrixCoordinator(DataUpdateCoordinator):
                 async def _sync_and_set_clock():
                     self._image_mode_active = False
                     self._image_signature = None
-                    await Common().setTime(
+                    await Common(self.conn).setTime(
                         now.year, now.month, now.day,
                         now.hour, now.minute, now.second,
                     )
                     r, g, b = self._clock_color(cfg)
-                    return await Clock().setMode(
+                    return await Clock(self.conn).setMode(
                         style=int(face),
                         visibleDate=cfg.get("show_date", True),
                         hour24=cfg.get("hour24", True),

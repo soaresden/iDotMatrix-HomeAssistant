@@ -1,4 +1,5 @@
 import asyncio
+from contextvars import ContextVar, Token
 from bleak import BleakClient, BleakScanner, AdvertisementData
 from bleak.exc import BleakError, BleakCharacteristicNotFoundError
 from .const import UUID_READ_DATA, UUID_WRITE_DATA, BLUETOOTH_DEVICE_NAME
@@ -11,23 +12,69 @@ class MissingWriteCharacteristicError(BleakError):
     """The connected device has not exposed the iDotMatrix write endpoint."""
 
 
-class SingletonMeta(type):
+class TransferRejectedError(Exception):
+    """The device refused a file transfer (e.g. no storage left for it)."""
+
+
+class _FastTransferFailed(Exception):
+    """A transfer sent with unacknowledged writes lost data on the way."""
+
+
+# Verdicts the device sends on the notify characteristic after each 4 KB
+# transfer packet: [length, 0, type, 0, status] (Android app, GifAgreement).
+TRANSFER_INVALID = 0
+TRANSFER_NEXT = 1
+TRANSFER_NO_SPACE = 2
+TRANSFER_DONE = 3
+
+
+# The manager of the display a coordinator is driving, set for the duration
+# of its device calls so library modules built without one reach that display.
+_current: ContextVar["ConnectionManager | None"] = ContextVar("idotmatrix_connection", default=None)
+
+
+class ConnectionRegistry(type):
+    """One manager per display address.
+
+    ``ConnectionManager()`` is the manager bound to the running device call,
+    or else the first one, as when the library only drove a single display.
+    """
     logging = logging.getLogger(__name__)
-    _instances: dict = {}
+    _instances: dict = {}  # address (None while unbound) -> manager
 
-    def __call__(cls, *args, **kwargs) -> "SingletonMeta":
-        if cls not in cls._instances:
-            try:
-                instance = super().__call__(*args, **kwargs)
-                cls._instances[cls] = instance
-            except:
-                # return None if wrong (or no arguments are given)
-                cls._instances[cls] = None
-        return cls._instances[cls]
+    def __call__(cls) -> "ConnectionManager":
+        current = _current.get()
+        if current is not None:
+            return current
+        if not cls._instances:
+            cls._instances[None] = super().__call__()
+        return next(iter(cls._instances.values()))
+
+    def for_address(cls, address: str | None) -> "ConnectionManager":
+        """The manager of one display, adopting a still unbound one."""
+        if not address:
+            return cls()
+        manager = cls._instances.get(address)
+        if manager is None:
+            manager = cls._instances.pop(None, None) or super().__call__()
+            manager.address = address
+            cls._instances[address] = manager
+        return manager
+
+    def bind(cls, manager: "ConnectionManager") -> Token:
+        """Route ``ConnectionManager()`` to this manager in the current context."""
+        return _current.set(manager)
 
 
-class ConnectionManager(metaclass=SingletonMeta):
+class ConnectionManager(metaclass=ConnectionRegistry):
     logging = logging.getLogger(__name__)
+    # Called with (packets sent, total packets, address) during file
+    # transfers to any display.
+    transfer_listener = None
+    # Called with (address, label, report) after each file transfer, done or
+    # failed: packets, bytes, seconds, and per attempt the write mode and the
+    # [write, wait for the device] seconds of each packet.
+    transfer_log = None
 
     def __init__(self) -> None:
         self.address: Optional[str] = None
@@ -35,6 +82,14 @@ class ConnectionManager(metaclass=SingletonMeta):
         self.hass = None
         self._debug_versions: str | None = None
         self._write_sequence = 0
+        # Measured time per 4 KB transfer packet, to estimate upload times.
+        self.seconds_per_packet: float | None = None
+        # What the transfer in progress is (a gallery file, "live"...), for progress events.
+        self.transfer_label: str | None = None
+        # Set to stop the transfer in progress before its next packet (panel « File »).
+        self.abort_requested = False
+        # File transfers use unacknowledged writes (see send_transfer).
+        self.fast_transfers = True
 
     def set_hass(self, hass):
         """Set Home Assistant instance for proxy support."""
@@ -211,6 +266,7 @@ class ConnectionManager(metaclass=SingletonMeta):
 
                 # is_connected alone does not prove the device is writable.
                 self._write_characteristic()
+                await self._acquire_mtu()
             except MissingWriteCharacteristicError as err:
                 self.logging.debug("BLE service validation failed address=%s attempt=%d", self.address, attempt + 1, exc_info=True)
                 if attempt + 1 == attempts:
@@ -230,6 +286,31 @@ class ConnectionManager(metaclass=SingletonMeta):
                 self.logging.info("Connected to %s with iDotMatrix write characteristic", self.address)
                 self.logging.debug("BLE connection ready address=%s attempt=%d elapsed=%.3fs", self.address, attempt + 1, monotonic() - started)
                 return
+
+    async def _acquire_mtu(self) -> None:
+        """Ask BlueZ for the negotiated MTU (best effort).
+
+        BlueZ reports the default 23-byte MTU until asked, so 4 KB packets
+        went out as ~205 writes of 20 bytes: 4.6 s per packet instead of
+        about 0.6 s with 509-byte writes. Proxies and other backends have no
+        such call and keep their own size.
+        """
+        acquire = getattr(getattr(self.client, "_backend", None), "_acquire_mtu", None)
+        if acquire is None:
+            return
+        before = self._write_size()
+        try:
+            await acquire()
+        except Exception as err:  # noqa: BLE001 - the transfer still works with small writes
+            self.logging.debug("BLE MTU request failed address=%s: %s", self.address, err)
+            return
+        self.logging.debug("BLE write size address=%s before=%s after=%s", self.address, before, self._write_size())
+
+    def _write_size(self) -> int | None:
+        try:
+            return min(self._write_characteristic().max_write_without_response_size, self.BLE_WRITE_SIZE)
+        except Exception:  # noqa: BLE001 - only for reports
+            return None
 
     def _write_characteristic(self):
         """Resolve the required endpoint and explain incomplete discovery."""
@@ -264,6 +345,13 @@ class ConnectionManager(metaclass=SingletonMeta):
 
     # Match the Android app's BLE write size (MTU 517 - ATT overhead = 509)
     BLE_WRITE_SIZE = 509
+    WRITE_PAUSE_S = 0.02  # after each write without response of BLE_WRITE_SIZE bytes
+    # The writes without response of one packet are all handed to the
+    # Bluetooth stack at once (in order) instead of one after the other: each
+    # write otherwise costs ~50 ms on a Pi whatever the pause or connection
+    # interval. Measured on 2026-10-29: 734 KB in 56 s instead of 107-116 s,
+    # no packet lost. Settable at run time (idotmatrix/studio/write_pause).
+    WRITE_BURST = True
 
     # Default to acknowledged writes: through an ESPHome BLE proxy,
     # unacknowledged Write Commands are silently dropped under buffer
@@ -305,6 +393,141 @@ class ConnectionManager(metaclass=SingletonMeta):
         self.logging.debug("BLE write rejected address=%s write_id=%d: not connected", self.address, write_id)
         raise ConnectionError("iDotMatrix is not connected")
 
+    # Pause before resending a whole file with acknowledged writes, so the
+    # device drops the packet it was still assembling.
+    TRANSFER_RESTART_DELAY = 1.0
+    # Fast attempts of a file before it falls back to acknowledged writes:
+    # a packet left unanswered is usually a one-off, and acknowledged writes
+    # are many times slower (about 10 s per 4 KB packet against 0.6 s).
+    FAST_ATTEMPTS = 2
+
+    async def send_transfer(self, packets, timeout: float = 5.0) -> bool:
+        """Send file transfer packets, waiting for the device after each one.
+
+        Like the Android app, the next 4 KB packet only goes out once the
+        device asks for it: it needs that time to store the previous one,
+        and packets streamed back-to-back are silently dropped (the GIF
+        then never shows). Raises TransferRejectedError when the device
+        reports no space left or an invalid transfer. Firmware that never
+        answers gets the remaining packets unpaced, as before.
+
+        Also like the app, the 509-byte writes inside a packet do not wait
+        for a write response, which makes uploads many times faster. A link
+        that loses some of them (an ESPHome proxy under load) shows as a
+        packet the device never confirms: the file is sent again from the
+        start, fast once more, then with acknowledged writes. The next file
+        starts fast again.
+        """
+        started = monotonic()
+        report = {"packets": len(packets), "bytes": sum(len(p) for p in packets), "attempts": [],
+                  "write_size": self._write_size(), "write_pause_s": type(self).WRITE_PAUSE_S,
+                  "write_burst": type(self).WRITE_BURST}
+        try:
+            if self.fast_transfers and "write-without-response" in self._write_characteristic().properties:
+                for number in range(1, self.FAST_ATTEMPTS + 1):
+                    attempt = {"mode": "fast", "packets": []}
+                    report["attempts"].append(attempt)
+                    try:
+                        return await self._send_packets(packets, timeout, fast=True, attempt=attempt)
+                    except _FastTransferFailed as err:
+                        attempt["failed"] = str(err)
+                        self.logging.warning(
+                            "Fast transfer to %s failed (%s); resending %s", self.address, err,
+                            "fast again" if number < self.FAST_ATTEMPTS else "with acknowledged writes",
+                        )
+                        await asyncio.sleep(self.TRANSFER_RESTART_DELAY)
+            attempt = {"mode": "acknowledged", "packets": []}
+            report["attempts"].append(attempt)
+            return await self._send_packets(packets, timeout, fast=False, attempt=attempt)
+        except BaseException as err:
+            report["error"] = str(err) or type(err).__name__
+            raise
+        finally:
+            report["seconds"] = round(monotonic() - started, 3)
+            hook = type(self).transfer_log
+            if hook:
+                try:
+                    hook(self.address, self.transfer_label, report)
+                except Exception:  # noqa: BLE001 - logging must not break a transfer
+                    self.logging.debug("Transfer log hook failed", exc_info=True)
+
+    async def _send_packets(self, packets, timeout: float, *, fast: bool, attempt: dict | None = None) -> bool:
+        replies: asyncio.Queue[bytes] = asyncio.Queue()
+
+        def on_notify(_sender, data):
+            data = bytes(data)
+            if len(data) >= 5 and data[1] == 0 and data[3] == 0:
+                replies.put_nowait(data)
+
+        await self.client.start_notify(UUID_READ_DATA, on_notify)
+        started = monotonic()
+        try:
+            acknowledged = True
+            for index, packet in enumerate(packets):
+                if self.abort_requested:
+                    raise TransferRejectedError(f"Transfer cancelled after packet {index}/{len(packets)}")
+                while not replies.empty():
+                    replies.get_nowait()
+                sent_at = monotonic()
+                timing = [None, None]  # seconds writing, seconds waiting for the device
+                if attempt is not None:
+                    attempt["packets"].append(timing)
+                try:
+                    await self.send(data=packet, response=not fast)
+                except BleakError as err:
+                    if fast:
+                        raise _FastTransferFailed(f"write failed at packet {index + 1}: {err}") from err
+                    raise
+                # Read on the class: a plain function stored there would
+                # otherwise be bound to this manager.
+                listener = type(self).transfer_listener
+                if listener:
+                    listener(index + 1, len(packets), self.address)
+                written_at = monotonic()
+                timing[0] = round(written_at - sent_at, 3)
+                if not acknowledged:
+                    continue
+                try:
+                    status = (await asyncio.wait_for(replies.get(), timeout))[4]
+                    timing[1] = round(monotonic() - written_at, 3)
+                except asyncio.TimeoutError:
+                    if fast:
+                        raise _FastTransferFailed(f"no answer to packet {index + 1}/{len(packets)}") from None
+                    if index:
+                        raise TransferRejectedError(
+                            f"Device stopped answering after packet {index + 1}/{len(packets)}"
+                        ) from None
+                    self.logging.debug("BLE transfer address=%s: device sends no acknowledgements", self.address)
+                    acknowledged = False
+                    continue
+                self.logging.debug(
+                    "BLE transfer address=%s packet=%d/%d status=%d",
+                    self.address, index + 1, len(packets), status,
+                )
+                if status == TRANSFER_NO_SPACE:
+                    raise TransferRejectedError("Not enough space on the device for this file")
+                if status == TRANSFER_INVALID:
+                    if fast:
+                        raise _FastTransferFailed(f"packet {index + 1} arrived damaged")
+                    raise TransferRejectedError("The device rejected the transfer as invalid")
+                if status == TRANSFER_DONE:
+                    # Learnt from real files (a first image alone says little).
+                    if index + 1 >= 8:
+                        measured = (monotonic() - started) / (index + 1)
+                        old = self.seconds_per_packet
+                        self.seconds_per_packet = measured if old is None else 0.7 * old + 0.3 * measured
+                    return True
+            if acknowledged:
+                if fast:
+                    raise _FastTransferFailed("the end of the file was not confirmed")
+                raise TransferRejectedError("The device did not confirm the end of the transfer")
+            return True
+        finally:
+            try:
+                await self.client.stop_notify(UUID_READ_DATA)
+            except Exception:  # noqa: BLE001 - the link may already be gone
+                self.logging.debug("BLE stop_notify failed address=%s", self.address, exc_info=True)
+
     async def _write_chunks(self, data, response, progress, *, write_id=0, attempt=1):
         # Cap chunk size to real BLE MTU regardless of proxy-reported size.
         # ESPHome BLE proxies report a large WiFi-based MTU, but the actual
@@ -320,6 +543,13 @@ class ConnectionManager(metaclass=SingletonMeta):
             self.address, write_id, attempt, len(data), response, characteristic.uuid,
             characteristic.handle, reported, chunk_size, chunk_count,
         )
+        if not response and type(self).WRITE_BURST:
+            await self._write_burst(data, chunk_size, progress)
+            self.logging.debug(
+                "BLE burst write complete address=%s write_id=%d bytes=%d chunks=%d elapsed=%.3fs",
+                self.address, write_id, len(data), progress["writes"], monotonic() - started,
+            )
+            return True
         for i in range(0, len(data), chunk_size):
             try:
                 await self.client.write_gatt_char(UUID_WRITE_DATA, data[i:i+chunk_size], response=response)
@@ -336,14 +566,35 @@ class ConnectionManager(metaclass=SingletonMeta):
             # Pace writes to match the BLE connection interval (~25ms).
             # The Android app's BLE stack provides this pacing via L2CAP
             # flow control; through an ESPHome proxy we must add it manually
-            # to prevent flooding the proxy's BLE transmit buffer.
-            await asyncio.sleep(0.025)
+            # to prevent flooding the proxy's BLE transmit buffer. Writes
+            # without response go out every 20 ms, the app's own delay
+            # (GifAgreement.curTime), for its 509-byte writes: the same byte
+            # rate is kept when the link only takes 20-byte writes (a Pi's
+            # BlueZ), which otherwise spent 4.6 s per 4 KB packet pausing.
+            await asyncio.sleep(0.025 if response else self.WRITE_PAUSE_S * chunk_size / self.BLE_WRITE_SIZE)
 
         self.logging.debug(
             "BLE write complete address=%s write_id=%d attempt=%d bytes=%d chunks=%d elapsed=%.3fs",
             self.address, write_id, attempt, len(data), progress["writes"], monotonic() - started,
         )
         return True
+
+    async def _write_burst(self, data, chunk_size, progress):
+        """Hand every chunk to the stack at once: each write is started in order
+        before any is awaited, so the stack can send several per connection
+        event instead of one (about 50 ms each on a Pi)."""
+        writes = [
+            asyncio.ensure_future(self.client.write_gatt_char(UUID_WRITE_DATA, data[i:i + chunk_size], response=False))
+            for i in range(0, len(data), chunk_size)
+        ]
+        try:
+            for write in writes:
+                await write
+                progress["writes"] += 1
+        except (Exception, asyncio.CancelledError):
+            for write in writes:
+                write.cancel()
+            raise
 
     async def _discard_client(self, *, clear_cache: bool = False):
         """Release a failed client, invalidating backend/proxy services if needed."""
