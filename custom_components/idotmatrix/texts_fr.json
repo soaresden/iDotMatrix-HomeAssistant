@@ -1,0 +1,749 @@
+{
+  "_about": "Les textes des pages Météo (pages.py), un par heure (le mot du jour : un par jour). Chaque ligne dit d'où elle vient : l'œuvre pour une citation, une référence pour un fait, « rédigé pour Pixel Studio » pour ce qui a été écrit ici. On peut en ajouter ou en corriger ici. Chaque texte fait 60 caractères au plus (64 LED de large) ; une citation garde ses mots exacts, sinon elle n'est pas prise.",
+  "thought": {
+    "header": "CITATION",
+    "items": [
+      {
+        "text": "Connais-toi toi-même.",
+        "author": "Socrate",
+        "source": "Inscription du temple de Delphes, reprise par Socrate chez Platon (Charmide, Alcibiade)"
+      },
+      {
+        "text": "Je pense, donc je suis.",
+        "author": "Descartes",
+        "source": "Discours de la méthode (1637), 4e partie"
+      },
+      {
+        "text": "Le cœur a ses raisons que la raison ne connaît point.",
+        "author": "Pascal",
+        "source": "Pensées (1670)"
+      },
+      {
+        "text": "Il faut cultiver notre jardin.",
+        "author": "Voltaire",
+        "source": "Candide (1759), dernière phrase"
+      },
+      {
+        "text": "On ne se baigne jamais deux fois dans le même fleuve.",
+        "author": "Héraclite",
+        "source": "Fragment rapporté par Platon, Cratyle"
+      },
+      {
+        "text": "Un voyage de mille lieues commence par un pas.",
+        "author": "Lao-Tseu",
+        "source": "Tao Te King, chapitre 64"
+      },
+      {
+        "text": "Qui veut voyager loin ménage sa monture.",
+        "author": "Racine",
+        "source": "Les Plaideurs (1668), acte I, scène 1"
+      },
+      {
+        "text": "L'imagination est plus importante que le savoir.",
+        "author": "Einstein",
+        "source": "Entretien au Saturday Evening Post (26 octobre 1929)"
+      },
+      {
+        "text": "Le hasard ne favorise que les esprits préparés.",
+        "author": "Pasteur",
+        "source": "Discours à la faculté des sciences de Lille (7 décembre 1854)"
+      },
+      {
+        "text": "La critique est aisée, et l'art est difficile.",
+        "author": "Destouches",
+        "source": "Le Glorieux (1732), acte II, scène 5"
+      },
+      {
+        "text": "Ce que l'on conçoit bien s'énonce clairement.",
+        "author": "Boileau",
+        "source": "L'Art poétique (1674), chant I"
+      },
+      {
+        "text": "Ce qui ne me tue pas me rend plus fort.",
+        "author": "Nietzsche",
+        "source": "Crépuscule des idoles (1888), « Maximes et pointes », 8"
+      },
+      {
+        "text": "La raison du plus fort est toujours la meilleure.",
+        "author": "La Fontaine",
+        "source": "Fables, « Le Loup et l'Agneau » (1668)"
+      },
+      {
+        "text": "Chaque homme porte la forme entière de l'humaine condition.",
+        "author": "Montaigne",
+        "source": "Essais (1580), livre III, chapitre 2"
+      },
+      {
+        "text": "L'essentiel est invisible pour les yeux.",
+        "author": "Saint-Exupéry",
+        "source": "Le Petit Prince (1943), chapitre XXI"
+      },
+      {
+        "text": "Rien ne se perd, rien ne se crée, tout se transforme.",
+        "author": "Lavoisier",
+        "source": "Formule tirée de son Traité élémentaire de chimie (1789)"
+      }
+    ]
+  },
+  "proverb": {
+    "header": "DICTON",
+    "items": [
+      {
+        "text": "Petit à petit, l'oiseau fait son nid.",
+        "source": "Proverbe français"
+      },
+      {
+        "text": "Après la pluie, le beau temps.",
+        "source": "Proverbe français"
+      },
+      {
+        "text": "L'habit ne fait pas le moine.",
+        "source": "Proverbe français"
+      },
+      {
+        "text": "Pierre qui roule n'amasse pas mousse.",
+        "source": "Proverbe français"
+      },
+      {
+        "text": "Les bons comptes font les bons amis.",
+        "source": "Proverbe français"
+      },
+      {
+        "text": "Mieux vaut tard que jamais.",
+        "source": "Proverbe français"
+      },
+      {
+        "text": "Tout vient à point à qui sait attendre.",
+        "source": "Proverbe français"
+      },
+      {
+        "text": "La nuit porte conseil.",
+        "source": "Proverbe français"
+      },
+      {
+        "text": "Il n'y a pas de fumée sans feu.",
+        "source": "Proverbe français"
+      },
+      {
+        "text": "Un tiens vaut mieux que deux tu l'auras.",
+        "source": "Proverbe français (La Fontaine, « Le Petit Poisson et le Pêcheur »)"
+      },
+      {
+        "text": "Qui ne risque rien n'a rien.",
+        "source": "Proverbe français"
+      },
+      {
+        "text": "L'appétit vient en mangeant.",
+        "source": "Proverbe français (Rabelais, Gargantua)"
+      },
+      {
+        "text": "C'est en forgeant qu'on devient forgeron.",
+        "source": "Proverbe français"
+      },
+      {
+        "text": "Quand le chat n'est pas là, les souris dansent.",
+        "source": "Proverbe français"
+      },
+      {
+        "text": "Noël au balcon, Pâques au tison.",
+        "source": "Dicton populaire"
+      },
+      {
+        "text": "En avril, ne te découvre pas d'un fil.",
+        "source": "Dicton populaire"
+      },
+      {
+        "text": "Pluie du matin n'arrête pas le pèlerin.",
+        "source": "Dicton populaire"
+      },
+      {
+        "text": "L'union fait la force.",
+        "source": "Proverbe (devise de la Belgique)"
+      },
+      {
+        "text": "Les petits ruisseaux font les grandes rivières.",
+        "source": "Proverbe français"
+      },
+      {
+        "text": "Vouloir, c'est pouvoir.",
+        "source": "Proverbe français"
+      },
+      {
+        "text": "Qui se ressemble s'assemble.",
+        "source": "Proverbe français"
+      },
+      {
+        "text": "Rien ne sert de courir, il faut partir à point.",
+        "source": "La Fontaine, « Le Lièvre et la Tortue » (1668)"
+      },
+      {
+        "text": "À la Sainte-Catherine, tout bois prend racine.",
+        "source": "Dicton populaire (25 novembre)"
+      },
+      {
+        "text": "Il faut battre le fer pendant qu'il est chaud.",
+        "source": "Proverbe français"
+      },
+      {
+        "text": "Qui sème le vent récolte la tempête.",
+        "source": "Proverbe (d'après la Bible, Osée 8, 7)"
+      },
+      {
+        "text": "Chacun voit midi à sa porte.",
+        "source": "Proverbe français"
+      }
+    ]
+  },
+  "fact": {
+    "header": "LE SAVIEZ-VOUS",
+    "items": [
+      {
+        "text": "Sur Vénus, un jour dure plus qu'une année.",
+        "source": "NASA : Vénus tourne sur elle-même en 243 jours et autour du Soleil en 225"
+      },
+      {
+        "text": "Les pieuvres ont trois cœurs et le sang bleu.",
+        "source": "Wikipédia, « Octopoda » (hémocyanine)"
+      },
+      {
+        "text": "Le miel bien conservé ne se périme pas.",
+        "source": "Smithsonian Magazine, « The Science Behind Honey's Eternal Shelf Life » (2013)"
+      },
+      {
+        "text": "Les flamants sont roses grâce à ce qu'ils mangent.",
+        "source": "Wikipédia, « Flamant rose » (caroténoïdes des crevettes et algues)"
+      },
+      {
+        "text": "Un éclair est plus chaud que la surface du Soleil.",
+        "source": "NOAA, National Weather Service, « How Hot Is Lightning? »"
+      },
+      {
+        "text": "La tour Eiffel grandit de quelques centimètres en été.",
+        "source": "Site officiel de la tour Eiffel (dilatation du fer à la chaleur)"
+      },
+      {
+        "text": "Les koalas dorment jusqu'à 20 heures par jour.",
+        "source": "Australian Koala Foundation (18 à 22 heures)"
+      },
+      {
+        "text": "Le mot robot vient du tchèque.",
+        "source": "Karel Čapek, pièce R.U.R. (1920), de « robota », corvée"
+      },
+      {
+        "text": "Les abeilles se parlent en dansant.",
+        "source": "Karl von Frisch, prix Nobel de médecine 1973"
+      },
+      {
+        "text": "La Terre a plus d'arbres que la Voie lactée d'étoiles.",
+        "source": "Crowther et al., Nature (2015) : environ 3 000 milliards d'arbres"
+      },
+      {
+        "text": "Des loutres de mer dorment en se tenant la patte.",
+        "source": "Wikipédia, « Loutre de mer » (elles dorment en groupes, accrochées aux algues ou entre elles)"
+      },
+      {
+        "text": "Un nuage moyen pèse environ 500 tonnes.",
+        "source": "USGS, d'après Peggy LeMone (NCAR)"
+      },
+      {
+        "text": "La Lune s'éloigne de la Terre d'environ 3,8 cm par an.",
+        "source": "NASA, mesures laser des réflecteurs d'Apollo"
+      },
+      {
+        "text": "Une girafe a 7 vertèbres au cou, comme nous.",
+        "source": "Wikipédia, « Girafe »"
+      },
+      {
+        "text": "Les chats ne sentent pas le goût sucré.",
+        "source": "Li et al., PLoS Genetics (2005) : gène Tas1r2 inactif"
+      },
+      {
+        "text": "Aucun pays n'a plus de fuseaux horaires que la France.",
+        "source": "Wikipédia, « Fuseau horaire » : 12 avec les outre-mer (13 avec la Terre Adélie)"
+      },
+      {
+        "text": "Les étoiles de mer n'ont pas de cerveau.",
+        "source": "Wikipédia, « Asteroidea »"
+      },
+      {
+        "text": "Les bananes sont très légèrement radioactives.",
+        "source": "Wikipédia, « Dose équivalente en banane » (potassium 40)"
+      },
+      {
+        "text": "Le cœur humain bat environ 100 000 fois par jour.",
+        "source": "Environ 70 battements par minute × 1 440 minutes"
+      },
+      {
+        "text": "Chez l'hippocampe, le mâle porte les petits.",
+        "source": "Wikipédia, « Hippocampe (poisson) »"
+      },
+      {
+        "text": "La lumière du Soleil met 8 minutes à nous parvenir.",
+        "source": "NASA : 8 minutes 20 secondes en moyenne"
+      },
+      {
+        "text": "La banane est une baie, la fraise non.",
+        "source": "Wikipédia, « Baie (botanique) »"
+      },
+      {
+        "text": "On cligne des yeux environ 15 000 fois par jour.",
+        "source": "Environ 15 fois par minute éveillé (Wikipédia, « Clignement »)"
+      },
+      {
+        "text": "Le cri du canard fait bien de l'écho.",
+        "source": "Université de Salford (2003), contre une idée reçue"
+      }
+    ]
+  },
+  "motivation": {
+    "header": "COURAGE !",
+    "items": [
+      {
+        "text": "Un petit pas aujourd'hui, un grand chemin demain.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Tu as déjà surmonté toutes tes pires journées.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Fais de ton mieux, c'est déjà beaucoup.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Le meilleur moment pour commencer, c'est maintenant.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Souris : ça fait du bien et c'est gratuit.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Chaque jour est une nouvelle page.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Avance, même lentement.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Crois en toi, les autres suivront.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Respire. Tout va bien se passer.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Les erreurs prouvent que tu essaies.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Petit progrès reste progrès.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Fais aujourd'hui ce que tu remercieras demain.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Bois de l'eau, prends l'air : ça compte.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Le courage, c'est d'avancer malgré la peur.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Tu es plus fort que tu ne le crois.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Sois gentil, avec les autres et avec toi.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Une bonne journée commence par un bon café.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Ce que tu fais aujourd'hui compte.",
+        "source": "Rédigé pour Pixel Studio"
+      }
+    ]
+  },
+  "humor": {
+    "header": "POUR RIRE",
+    "items": [
+      {
+        "text": "Une blague sur le pain ? Elle est un peu rassise.",
+        "source": "Blague populaire"
+      },
+      {
+        "text": "Un escargot dépasse une tortue : quelle vitesse !",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Qu'est-ce qu'un canif ? Un petit fien.",
+        "source": "Blague populaire"
+      },
+      {
+        "text": "Que dit une imprimante dans l'eau ? J'ai papier.",
+        "source": "Blague populaire"
+      },
+      {
+        "text": "Pourquoi les poissons fuient l'ordi ? À cause du net.",
+        "source": "Blague populaire"
+      },
+      {
+        "text": "Le comble d'un électricien ? Ne pas être au courant.",
+        "source": "Blague populaire"
+      },
+      {
+        "text": "Le comble d'un jardinier ? Raconter des salades.",
+        "source": "Blague populaire"
+      },
+      {
+        "text": "Un crocodile voit une jolie femelle : il Lacoste.",
+        "source": "Blague populaire"
+      },
+      {
+        "text": "Le livre de maths est triste : trop de problèmes.",
+        "source": "Blague populaire"
+      },
+      {
+        "text": "Un chat tombé dans la peinture ? Un chat-peint.",
+        "source": "Blague populaire"
+      }
+    ]
+  },
+  "wellbeing": {
+    "header": "BIEN-ETRE",
+    "items": [
+      {
+        "text": "Bois un grand verre d'eau.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Lève-toi et étire-toi une minute.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Regarde au loin quelques secondes.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Respire profondément trois fois.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Envoie un message gentil à quelqu'un.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Ouvre la fenêtre, aère un peu.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Fais une pause sans écran.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Marche dix minutes aujourd'hui.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Note une chose qui t'a fait plaisir.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Range une petite chose, ça fait du bien.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Couche-toi un peu plus tôt ce soir.",
+        "source": "Rédigé pour Pixel Studio"
+      },
+      {
+        "text": "Souris, même pour rien.",
+        "source": "Rédigé pour Pixel Studio"
+      }
+    ]
+  },
+  "word": {
+    "header": "LE MOT DU JOUR",
+    "every": "day",
+    "items": [
+      {
+        "word": "Nyctalope",
+        "text": "Qui voit bien dans l'obscurité.",
+        "source": "https://fr.wiktionary.org/wiki/nyctalope"
+      },
+      {
+        "word": "Sérendipité",
+        "text": "Trouver par hasard ce qu'on ne cherchait pas.",
+        "source": "https://fr.wiktionary.org/wiki/sérendipité"
+      },
+      {
+        "word": "Pétrichor",
+        "text": "L'odeur de la terre après la pluie.",
+        "source": "https://fr.wiktionary.org/wiki/pétrichor"
+      },
+      {
+        "word": "Procrastiner",
+        "text": "Remettre toujours à plus tard.",
+        "source": "https://fr.wiktionary.org/wiki/procrastiner"
+      },
+      {
+        "word": "Ataraxie",
+        "text": "Tranquillité de l'âme, que rien ne trouble.",
+        "source": "https://fr.wiktionary.org/wiki/ataraxie"
+      },
+      {
+        "word": "Apophtegme",
+        "text": "Parole mémorable, brève et frappante.",
+        "source": "https://fr.wiktionary.org/wiki/apophtegme"
+      },
+      {
+        "word": "Palimpseste",
+        "text": "Parchemin gratté puis écrit à nouveau.",
+        "source": "https://fr.wiktionary.org/wiki/palimpseste"
+      },
+      {
+        "word": "Ubiquité",
+        "text": "Le fait d'être partout à la fois.",
+        "source": "https://fr.wiktionary.org/wiki/ubiquité"
+      },
+      {
+        "word": "Acrimonie",
+        "text": "Aigreur dans les paroles ou l'humeur.",
+        "source": "https://fr.wiktionary.org/wiki/acrimonie"
+      },
+      {
+        "word": "Logorrhée",
+        "text": "Flot de paroles intarissable.",
+        "source": "https://fr.wiktionary.org/wiki/logorrhée"
+      },
+      {
+        "word": "Pusillanime",
+        "text": "Qui manque de courage, craintif.",
+        "source": "https://fr.wiktionary.org/wiki/pusillanime"
+      },
+      {
+        "word": "Thuriféraire",
+        "text": "Flatteur, admirateur zélé.",
+        "source": "https://fr.wiktionary.org/wiki/thuriféraire"
+      },
+      {
+        "word": "Obséquieux",
+        "text": "Poli et empressé à l'excès.",
+        "source": "https://fr.wiktionary.org/wiki/obséquieux"
+      },
+      {
+        "word": "Abscons",
+        "text": "Difficile à comprendre.",
+        "source": "https://fr.wiktionary.org/wiki/abscons"
+      },
+      {
+        "word": "Dithyrambique",
+        "text": "D'un éloge enthousiaste, exagéré.",
+        "source": "https://fr.wiktionary.org/wiki/dithyrambique"
+      },
+      {
+        "word": "Pantagruélique",
+        "text": "Énorme, digne d'un appétit de géant.",
+        "source": "https://fr.wiktionary.org/wiki/pantagruélique"
+      },
+      {
+        "word": "Syzygie",
+        "text": "Alignement du Soleil, de la Terre et de la Lune.",
+        "source": "https://fr.wiktionary.org/wiki/syzygie"
+      },
+      {
+        "word": "Apocryphe",
+        "text": "Dont l'authenticité est douteuse.",
+        "source": "https://fr.wiktionary.org/wiki/apocryphe"
+      },
+      {
+        "word": "Atrabilaire",
+        "text": "D'humeur sombre et irritable.",
+        "source": "https://fr.wiktionary.org/wiki/atrabilaire"
+      },
+      {
+        "word": "Chafouin",
+        "text": "À l'air sournois et rusé.",
+        "source": "https://fr.wiktionary.org/wiki/chafouin"
+      },
+      {
+        "word": "Coquecigrue",
+        "text": "Idée absurde, baliverne.",
+        "source": "https://fr.wiktionary.org/wiki/coquecigrue"
+      },
+      {
+        "word": "Hapax",
+        "text": "Mot qui n'apparaît qu'une fois dans un texte.",
+        "source": "https://fr.wiktionary.org/wiki/hapax"
+      },
+      {
+        "word": "Idoine",
+        "text": "Qui convient parfaitement.",
+        "source": "https://fr.wiktionary.org/wiki/idoine"
+      },
+      {
+        "word": "Jactance",
+        "text": "Attitude de qui se vante.",
+        "source": "https://fr.wiktionary.org/wiki/jactance"
+      },
+      {
+        "word": "Lambiner",
+        "text": "Agir avec lenteur, traîner.",
+        "source": "https://fr.wiktionary.org/wiki/lambiner"
+      },
+      {
+        "word": "Mansuétude",
+        "text": "Indulgence, douceur envers les autres.",
+        "source": "https://fr.wiktionary.org/wiki/mansuétude"
+      },
+      {
+        "word": "Oxymore",
+        "text": "Deux mots contraires réunis, comme « obscure clarté ».",
+        "source": "https://fr.wiktionary.org/wiki/oxymore"
+      },
+      {
+        "word": "Panacée",
+        "text": "Remède censé guérir tous les maux.",
+        "source": "https://fr.wiktionary.org/wiki/panacée"
+      },
+      {
+        "word": "Quidam",
+        "text": "Une personne quelconque, dont on ignore le nom.",
+        "source": "https://fr.wiktionary.org/wiki/quidam"
+      },
+      {
+        "word": "Rasséréner",
+        "text": "Rendre le calme, rassurer.",
+        "source": "https://fr.wiktionary.org/wiki/rasséréner"
+      },
+      {
+        "word": "Saugrenu",
+        "text": "Bizarre, inattendu et un peu ridicule.",
+        "source": "https://fr.wiktionary.org/wiki/saugrenu"
+      },
+      {
+        "word": "Tergiverser",
+        "text": "Hésiter, chercher des détours pour ne pas décider.",
+        "source": "https://fr.wiktionary.org/wiki/tergiverser"
+      },
+      {
+        "word": "Uchronie",
+        "text": "L'histoire refaite avec un événement changé.",
+        "source": "https://fr.wiktionary.org/wiki/uchronie"
+      },
+      {
+        "word": "Vétille",
+        "text": "Chose sans importance.",
+        "source": "https://fr.wiktionary.org/wiki/vétille"
+      },
+      {
+        "word": "Billevesée",
+        "text": "Idée creuse, sornette.",
+        "source": "https://fr.wiktionary.org/wiki/billevesée"
+      },
+      {
+        "word": "Brimborion",
+        "text": "Petit objet sans valeur.",
+        "source": "https://fr.wiktionary.org/wiki/brimborion"
+      },
+      {
+        "word": "Dilettante",
+        "text": "Qui s'occupe d'une chose en amateur, pour le plaisir.",
+        "source": "https://fr.wiktionary.org/wiki/dilettante"
+      },
+      {
+        "word": "Émérite",
+        "text": "Très compétent, d'une grande expérience.",
+        "source": "https://fr.wiktionary.org/wiki/émérite"
+      },
+      {
+        "word": "Fanfreluche",
+        "text": "Petit ornement léger d'une toilette.",
+        "source": "https://fr.wiktionary.org/wiki/fanfreluche"
+      },
+      {
+        "word": "Galimatias",
+        "text": "Discours embrouillé, confus.",
+        "source": "https://fr.wiktionary.org/wiki/galimatias"
+      },
+      {
+        "word": "Hurluberlu",
+        "text": "Personne extravagante, étourdie.",
+        "source": "https://fr.wiktionary.org/wiki/hurluberlu"
+      },
+      {
+        "word": "Ineffable",
+        "text": "Qu'on ne peut exprimer par des mots.",
+        "source": "https://fr.wiktionary.org/wiki/ineffable"
+      },
+      {
+        "word": "Olibrius",
+        "text": "Individu bizarre, original.",
+        "source": "https://fr.wiktionary.org/wiki/olibrius"
+      },
+      {
+        "word": "Pandiculation",
+        "text": "Le grand étirement qu'on fait souvent en bâillant.",
+        "source": "https://fr.wiktionary.org/wiki/pandiculation"
+      },
+      {
+        "word": "Quintessence",
+        "text": "Ce qu'il y a de meilleur, l'essentiel.",
+        "source": "https://fr.wiktionary.org/wiki/quintessence"
+      },
+      {
+        "word": "Ripaille",
+        "text": "Grand repas où l'on mange et boit beaucoup.",
+        "source": "https://fr.wiktionary.org/wiki/ripaille"
+      },
+      {
+        "word": "Turpitude",
+        "text": "Conduite honteuse, indigne.",
+        "source": "https://fr.wiktionary.org/wiki/turpitude"
+      },
+      {
+        "word": "Vilipender",
+        "text": "Dénigrer, traiter avec mépris.",
+        "source": "https://fr.wiktionary.org/wiki/vilipender"
+      },
+      {
+        "word": "Zénith",
+        "text": "Point du ciel juste au-dessus de nous ; le sommet.",
+        "source": "https://fr.wiktionary.org/wiki/zénith"
+      },
+      {
+        "word": "Cacochyme",
+        "text": "D'une santé fragile.",
+        "source": "https://fr.wiktionary.org/wiki/cacochyme"
+      },
+      {
+        "word": "Nonobstant",
+        "text": "Malgré, en dépit de.",
+        "source": "https://fr.wiktionary.org/wiki/nonobstant"
+      },
+      {
+        "word": "Mirliflore",
+        "text": "Jeune homme élégant et prétentieux.",
+        "source": "https://fr.wiktionary.org/wiki/mirliflore"
+      },
+      {
+        "word": "Éphémère",
+        "text": "Qui ne dure qu'un temps très court.",
+        "source": "https://fr.wiktionary.org/wiki/éphémère"
+      },
+      {
+        "word": "Vergogne",
+        "text": "Honte, pudeur (« sans vergogne » : sans honte).",
+        "source": "https://fr.wiktionary.org/wiki/vergogne"
+      }
+    ]
+  }
+}

@@ -35,6 +35,7 @@ from PIL import Image, ImageDraw, ImageFont
 from .power import _BOLT_ICON
 from .thermostat import (COOL_BLUE, COOL_CORE, HEAT_CORE, HEAT_ORANGE,
                          _FLAME_FRAMES, _SNOW_ICON)
+from . import emoji
 from .weather import _draw_text, _text_width, frames_to_gif
 
 STYLES = ("card", "alert", "marquee", "party", "typewriter")
@@ -291,6 +292,16 @@ class _Font:
         return scale + (1 if self.kind == "arcade" else 0)
 
     def width(self, text: str, scale: int) -> int:
+        if emoji.has_emoji(text):  # emoji are pictures as tall as the letters
+            parts = [(p, e) for p, e in emoji.split(text) if not e or self._emoji(p, scale)]
+            return (sum(self.height(scale) if e else self._plain_width(p, scale) for p, e in parts)
+                    + self.gap(scale) * max(0, len(parts) - 1))
+        return self._plain_width(text, scale)
+
+    def _emoji(self, piece: str, scale: int) -> bool:
+        return emoji.picture(piece, self.height(scale)) is not None
+
+    def _plain_width(self, text: str, scale: int) -> int:
         if self.kind == "arcade":
             return 8 * scale * len(text)
         if self.kind == "tiny":
@@ -304,6 +315,24 @@ class _Font:
     def draw(self, img: Image.Image, x: int, y: int, text: str,
              color, scale: int) -> None:
         """Draw text. ``color`` is an RGB tuple or a callable(index)."""
+        if not text:
+            return
+        if emoji.has_emoji(text):
+            index = 0
+            for piece, is_emoji in emoji.split(text):
+                if is_emoji:
+                    if emoji.paste(img, x, y, piece, self.height(scale)):
+                        x += self.height(scale) + self.gap(scale)
+                else:
+                    offset = index
+                    shade = (lambda i, o=offset: color(i + o)) if callable(color) else color
+                    self._draw_plain(img, x, y, piece, shade, scale)
+                    x += self._plain_width(piece, scale) + self.gap(scale)
+                index += len(piece)
+            return
+        self._draw_plain(img, x, y, text, color, scale)
+
+    def _draw_plain(self, img: Image.Image, x: int, y: int, text: str, color, scale: int) -> None:
         if not text:
             return
         d = ImageDraw.Draw(img)

@@ -1,6 +1,7 @@
 from typing import Union, List
-from ..connectionManager import ConnectionManager
+from ..connectionManager import ConnectionManager, TransferRejectedError
 import io
+import os
 import logging
 from PIL import Image as PilImage
 import zlib
@@ -9,8 +10,13 @@ import zlib
 class Gif:
     logging = logging.getLogger(__name__)
 
-    def __init__(self) -> None:
-        self.conn: ConnectionManager = ConnectionManager()
+    def __init__(self, conn: ConnectionManager | None = None) -> None:
+        self._conn = conn
+
+    @property
+    def conn(self) -> ConnectionManager:
+        # Without an explicit one, resolved when sending: see ConnectionManager.
+        return self._conn or ConnectionManager()
 
     def _load(self, file_path: str) -> bytes:
         """Load a gif file into a byte buffer.
@@ -78,7 +84,7 @@ class Gif:
             index (int): GIF index byte. 0x0d (13) for single uploads,
                          0-11 for batch uploads.
             interval (int): Carousel interval in seconds (how long each GIF
-                            displays before advancing). Range 0-255.
+                            displays before advancing). Range 0-65535.
 
         Returns:
             List[bytearray]: returns list of bytearray payloads
@@ -99,8 +105,8 @@ class Gif:
                 255,
                 255,
                 255,
-                interval & 0xFF,  # [13] carousel interval in seconds
-                0,    # [14] reserved
+                interval & 0xFF,  # [13:15] carousel interval in seconds,
+                (interval >> 8) & 0xFF,  # little endian (Android app: up to 300 s)
                 index & 0xFF,  # [15] index: 0x0d for single, GIF index for batch
             ]
         )
@@ -256,18 +262,14 @@ class Gif:
             gif_data = await loop.run_in_executor(None, self._load, file_path)
             data = self._createPayloads(gif_data, index=0x0d)
 
-            for chunk in data:
-                # Use response=True for flow control through BLE proxy.
-                # Without it, the proxy's BLE transmit buffer overflows for
-                # large files and silently drops packets.  Slower but reliable.
-                result = await self.conn.send(data=chunk, response=True)
-                if not result:
-                    self.logging.error("Send failed during single GIF upload")
-                    return False
+            # Each 4 KB packet waits for the device to ask for the next one.
+            await self.conn.send_transfer(data)
 
             self.logging.debug(f"Single GIF upload complete: {len(data)} chunks, {len(gif_data)} bytes")
             return True
 
+        except TransferRejectedError:
+            raise
         except Exception as error:
             self.logging.error(f"Single GIF upload failed: {error}")
             return False
@@ -284,7 +286,7 @@ class Gif:
             file_paths: List of paths to GIF files (max 12).
             pixel_size: Pixel size for resizing (16 or 32). Defaults to 32.
             interval: Carousel interval in seconds (how long each GIF displays
-                      before advancing to the next). Range 0-255. Defaults to 5.
+                      before advancing to the next). Range 0-65535. Defaults to 5.
             raw: If True, send raw file bytes without Pillow re-encoding.
 
         Returns:
@@ -337,11 +339,8 @@ class Gif:
                     self.logging.error(f"Failed to process GIF {i}: {file_path}")
                     return False
 
-                for chunk in data:
-                    result = await self.conn.send(data=chunk, response=True)
-                    if not result:
-                        self.logging.error(f"Send failed at GIF {i}")
-                        return False
+                self.conn.transfer_label = f"carrousel {i + 1}/{count} {os.path.basename(file_path)}"
+                await self.conn.send_transfer(data)
 
                 self.logging.debug(f"GIF {i+1}/{count} uploaded ({len(data)} chunks, {'raw' if raw else 'processed'})")
                 # Brief pause between GIF files (~100-150ms seen in Android capture)
@@ -351,6 +350,8 @@ class Gif:
             self.logging.debug(f"Batch upload complete: {count} GIFs, interval={interval}s")
             return True
 
+        except TransferRejectedError:
+            raise
         except Exception as error:
             self.logging.error(f"Batch upload failed: {error}")
             return False

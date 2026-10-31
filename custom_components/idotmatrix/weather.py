@@ -14,7 +14,7 @@ import io
 import math
 from dataclasses import dataclass
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw
 
 
 @dataclass
@@ -627,53 +627,120 @@ def _single_frame_blocks(gif_bytes: bytes) -> tuple:
     return header, bytes(desc), d[start:pos]
 
 
-def _assemble_gif(pframes: list, duration: int) -> bytes:
+def _delta(previous: Image.Image, current: Image.Image, transparent: int) -> tuple:
+    """What changed since the previous frame: its box, and the frame cropped
+    to it with the pixels that did not change set to ``transparent``."""
+    before = Image.frombytes("L", current.size, previous.tobytes())
+    after = Image.frombytes("L", current.size, current.tobytes())
+    box = ImageChops.difference(before, after).getbbox() or (0, 0, 1, 1)
+    changed = ImageChops.difference(before.crop(box), after.crop(box)).point(lambda v: 255 if v else 0)
+    sub = Image.new("L", (box[2] - box[0], box[3] - box[1]), transparent)
+    sub.paste(after.crop(box), mask=changed)
+    part = Image.frombytes("P", sub.size, sub.tobytes())
+    part.putpalette(current.getpalette())
+    return box, part
+
+
+def _settle(pframes: list, fuzz: int) -> list:
+    """Keep what the panel already shows wherever a frame barely differs from it.
+
+    A pixel whose colour moved by at most ``fuzz`` (per channel) keeps the
+    previous one, so it becomes transparent in the delta frame. Compared with
+    what is on screen, not with the previous source frame, so the error never
+    builds up beyond ``fuzz``. Video noise otherwise changes almost every pixel
+    of every frame, and delta frames save little.
+    """
+    palette = pframes[0].getpalette()
+    canvas = pframes[0]
+    settled = [canvas]
+    for q in pframes[1:]:
+        # Largest channel difference with what is on screen, per pixel.
+        diff = ImageChops.difference(canvas.convert("RGB"), q.convert("RGB")).split()
+        moved = ImageChops.lighter(ImageChops.lighter(diff[0], diff[1]), diff[2])
+        keep = moved.point(lambda v: 255 if v <= fuzz else 0)
+        indices = Image.composite(Image.frombytes("L", q.size, canvas.tobytes()),
+                                  Image.frombytes("L", q.size, q.tobytes()), keep)
+        canvas = Image.frombytes("P", q.size, indices.tobytes())
+        canvas.putpalette(palette)
+        settled.append(canvas)
+    return settled
+
+
+def _assemble_gif(pframes: list, duration: int | list[int], transparent: int | None = None) -> bytes:
     """Assemble an animated GIF with a single global palette and no LCTs.
 
     Pillow's multi-frame writer emits per-frame Local Color Tables, which
     the device parser is suspected to mishandle. Instead we compress each
     frame as a single-frame GIF (all sharing an identical full palette) and
     splice the LZW data into one hand-built animation container.
+
+    With a ``transparent`` palette index, every frame after the first only
+    holds the box that changed, its unchanged pixels transparent, like the
+    official app's store GIFs: the device keeps the rest of the previous
+    frame (disposal 1), and files get many times smaller to send.
+
+    ``duration`` is either one delay for every frame or a per-frame list (ms).
     """
-    delay_cs = max(2, duration // 10)
+    durations = duration if isinstance(duration, list) else [duration] * len(pframes)
     out = None
     header0 = None
-    for q in pframes:
+    for index, (q, frame_ms) in enumerate(zip(pframes, durations)):
+        delay_cs = max(2, frame_ms // 10)
+        x = y = 0
+        image = q
+        delta = transparent is not None and index > 0
+        if delta:
+            (x, y, _, _), image = _delta(pframes[index - 1], q, transparent)
         buf = io.BytesIO()
-        q.save(buf, format="GIF", optimize=False)
+        image.save(buf, format="GIF", optimize=False)
         header, desc, lzw = _single_frame_blocks(buf.getvalue())
         if out is None:
             header0 = header
             out = bytearray(header)
             # NETSCAPE looping extension (loop forever)
             out += b"\x21\xff\x0bNETSCAPE2.0\x03\x01\x00\x00\x00"
-        elif header != header0:
+        # The screen size differs for a cropped frame; the palette must not.
+        elif header[10] != header0[10] or header[13:] != header0[13:]:
             raise ValueError("frame palettes diverged")
-        # Graphic Control Extension: disposal=1 (leave frame in place).
-        # Every frame is full-size, so nothing needs restoring, and an
-        # embedded decoder that paints the "background" on disposal=2
-        # would otherwise flash the screen to palette index 0.
-        out += bytes([0x21, 0xF9, 0x04, 0x04,
-                      delay_cs & 0xFF, (delay_cs >> 8) & 0xFF, 0x00, 0x00])
-        out += desc + lzw
+        desc = bytearray(desc)
+        desc[1:5] = bytes([x & 0xFF, x >> 8, y & 0xFF, y >> 8])
+        # Graphic Control Extension: disposal=1 (leave frame in place), so a
+        # delta frame lands on the previous one, and an embedded decoder that
+        # paints the "background" on disposal=2 cannot flash the screen to
+        # palette index 0.
+        out += bytes([0x21, 0xF9, 0x04, 0x04 | (1 if delta else 0),
+                      delay_cs & 0xFF, (delay_cs >> 8) & 0xFF, transparent if delta else 0x00, 0x00])
+        out += bytes(desc) + lzw
     out += b"\x3b"
     return bytes(out)
 
 
-def frames_to_gif(frames: list, duration: int) -> bytes:
+def frames_to_gif(frames: list, duration: int | list[int], colors: int = 64,
+                  dither: bool = False, photo: bool = False, fuzz: int = 0) -> bytes:
     """Encode RGB frames as a device-safe animated GIF.
 
     All frames are quantized against one shared palette, then spliced into
-    a hand-built container (single global color table, no LCTs).
+    a hand-built container (single global color table, no LCTs). Frames
+    after the first only hold what changed (one palette slot is kept free
+    for their transparent pixels, so at most 255 colours).
+    ``duration`` is one delay for every frame or a per-frame list (ms).
+    ``photo`` picks the palette for photographic content (median cut refined
+    by k-means: smoother skin tones and gradients than max coverage, which
+    suits the flat pixel-art dashboards).
     """
     w, h = frames[0].size
+    # One palette index stays free: the transparent pixels of the delta frames.
+    colors = max(2, min(colors, 255))
     sheet = Image.new("RGB", (w, h * len(frames)))
     for i, fr in enumerate(frames):
         sheet.paste(fr, (0, h * i))
     try:
-        palette = sheet.quantize(colors=64, method=Image.Quantize.MAXCOVERAGE)
+        if photo:
+            palette = sheet.quantize(colors=colors, method=Image.Quantize.MEDIANCUT, kmeans=2)
+        else:
+            palette = sheet.quantize(colors=colors, method=Image.Quantize.MAXCOVERAGE)
     except Exception:
-        palette = sheet.quantize(colors=64)
+        palette = sheet.quantize(colors=colors)
     # Put black at index 0. The logical screen descriptor names index 0
     # as the background color, and the device applies a new file's palette
     # before its frame data arrives; with white at index 0 (the quantizer's
@@ -691,13 +758,18 @@ def frames_to_gif(frames: list, duration: int) -> bytes:
     lut = [remap.get(i, 0) for i in range(256)]
     pframes = []
     for fr in frames:
-        q = fr.quantize(palette=palette, dither=Image.Dither.NONE)
+        q = fr.quantize(
+            palette=palette,
+            dither=Image.Dither.FLOYDSTEINBERG if dither else Image.Dither.NONE,
+        )
         q = q.point(lut)
         q.putpalette(full_palette)
         pframes.append(q)
 
+    if fuzz > 0 and len(pframes) > 1:
+        pframes = _settle(pframes, fuzz)
     try:
-        return _assemble_gif(pframes, duration)
+        return _assemble_gif(pframes, duration, transparent=n_colors if n_colors < 256 else None)
     except Exception:
         # Fallback: Pillow's writer (may emit LCTs, but is standard GIF89a)
         buf = io.BytesIO()

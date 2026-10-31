@@ -13,7 +13,9 @@
     "dependencies": [
         "bluetooth",
         "http",
-        "lovelace"
+        "lovelace",
+        "panel_custom",
+        "websocket_api"
     ],
     "documentation": "https://github.com/tukies/iDotMatrix-HomeAssistant",
     "iot_class": "local_polling",

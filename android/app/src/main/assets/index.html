@@ -1,0 +1,1221 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pixel Météo</title>
+<style>
+  :root { --bg: #111418; --card: #1b2027; --line: #2c333d; --text: #e8eaed; --dim: #9aa3ad; --accent: #4aa3ff; --err: #ff6b5e; --ok: #4cc38a; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.4 system-ui, sans-serif; }
+  header { padding: 14px 16px; font-size: 19px; font-weight: 600; }
+  section { background: var(--card); margin: 0 12px 12px; border-radius: 12px; padding: 12px 14px; }
+  h2 { font-size: 15px; margin: 0 0 8px; color: var(--dim); font-weight: 600; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+  .grow { flex: 1; min-width: 0; }
+  button { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 9px 14px; font: inherit; }
+  button.ghost { background: none; color: var(--accent); border: 1px solid var(--line); }
+  button.ghost.on { background: var(--accent); color: #fff; }
+  #edit { flex-wrap: wrap; }
+  button.small { padding: 5px 10px; font-size: 13px; }
+  button, .chip, .pick, label { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  button:disabled { opacity: .4; }
+  input, select { background: #0e1115; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px; font: inherit; }
+  input[type=number] { width: 58px; }
+  textarea { background: #0e1115; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px; font: inherit; font-size: 13px; }
+  input[type=color] { width: 44px; height: 34px; padding: 2px; }
+  input[type=checkbox], input[type=radio] { width: 18px; height: 18px; }
+  label { display: inline-flex; gap: 6px; align-items: center; }
+  .muted { color: var(--dim); font-size: 13px; }
+  .error { color: var(--err); }
+  .ok { color: var(--ok); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { background: #0e1115; border: 1px solid var(--line); color: var(--text); border-radius: 16px; padding: 6px 12px; font-size: 13px; }
+  #zones .chip { padding: 4px 8px; font-size: 12px; }
+  #zones { gap: 4px; }
+  .chip.on { border-color: var(--accent); }
+  .place { border: 1px solid var(--line); border-radius: 10px; padding: 4px 10px; margin: 8px 0; }
+  /* The preview stays on top while the settings scroll under it. */
+  #preview { position: sticky; top: 0; z-index: 5; margin: 0 0 12px; border-radius: 0 0 12px 12px;
+    box-shadow: 0 6px 12px rgba(0, 0, 0, .45); display: flex; gap: 12px; align-items: flex-start; }
+  #led { width: min(190px, 46vw); aspect-ratio: 1; flex: none; display: block; background: #000; border-radius: 8px; touch-action: none; }
+  #edit button { padding: 5px 10px; font-size: 13px; }
+  #preview .side { flex: 1; min-width: 0; }
+  .ledcol { flex: none; }
+  #pagenums { gap: 3px; padding: 0 0 4px; max-width: min(190px, 46vw); }
+  #pagenums { gap: 6px; }
+  #pagenums .chip { padding: 6px 0; min-width: 40px; min-height: 38px; font-size: 16px; font-weight: 600; }
+  #pagenums .chip.pinned { background: var(--accent); color: #fff; }
+  .pick { text-decoration: underline dotted; cursor: pointer; margin-right: 8px; }
+  .pick.on { color: var(--accent); }
+  #pagenums .chip.off { opacity: .45; }
+  #pagenums .plus { border-style: dashed; }
+  details.sec { background: var(--card); margin: 0 12px 8px; border-radius: 12px; padding: 0 14px; }
+  details.sec > summary { padding: 13px 0; font-weight: 600; color: var(--dim); cursor: pointer; list-style: none; }
+  details.sec > summary::after { content: "▾"; float: right; }
+  details.sec[open] > summary::after { content: "▴"; }
+  details.sec[open] { padding-bottom: 8px; }
+  #screen h2 { margin-bottom: 4px; }
+  #screen .row { margin: 6px 0; }
+  .overlay { position: fixed; inset: 0; z-index: 30; background: rgba(0, 0, 0, .65); display: flex; align-items: center; justify-content: center; }
+  .overlay .box { background: var(--card); border-radius: 14px; padding: 16px; width: min(440px, 92vw); max-height: 86vh; overflow: auto; }
+  .overlay .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+  .overlay .grid button { padding: 12px 6px; background: #0e1115; border: 1px solid var(--line); color: var(--text); }
+  .overlay .grid button.first { border-color: var(--accent); }
+  .partchip { display: inline-flex; gap: 6px; align-items: center; }
+  /* Two tabs: the screens (preview and editing), the settings (frame, calendars, lists). */
+  /* A bar at the bottom: Écrans (preview, editing), Contenu (calendars, lists), Réglages (frame, status). */
+  body { padding-bottom: 72px; }
+  #tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 25; display: flex; background: #0b0e12;
+    border-top: 1px solid var(--line); padding: 4px 4px 6px; }
+  #tabs button { flex: 1; background: none; color: var(--dim); border: 0; border-radius: 10px; padding: 6px 2px;
+    font-size: 12px; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  #tabs button b { font-size: 21px; font-weight: 400; line-height: 1.1; }
+  #tabs button.on { color: var(--accent); background: #16202c; }
+  body[data-tab="content"] > :is(section, details):not([data-tab="content"]),
+  body[data-tab="settings"] > :is(section, details):not([data-tab="settings"]) { display: none !important; }
+  body:not([data-tab="content"]) > [data-tab="content"],
+  body:not([data-tab="settings"]) > [data-tab="settings"] { display: none !important; }
+  #addParts .chip { border-style: dashed; color: var(--dim); }
+  .pickrow { display: flex; margin: 6px 0; align-items: flex-start; }
+  #addParts .chip.on { border-style: solid; border-color: var(--accent); background: var(--accent); color: #fff; }
+  .partchip b { font-weight: 400; color: var(--dim); }
+  .list .row { margin: 4px 0; }
+  .days label { gap: 2px; font-size: 12px; }
+  #preview p { margin: 0 0 6px; }
+  .zone.flash { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 8px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body data-tab="screens">
+<header>☀ Pixel Météo</header>
+
+
+<section id="preview">
+  <div class="ledcol">
+  <div class="chips" id="pagenums" title="Les écrans qui tournent : touche un numéro pour le garder à l'aperçu et le régler"></div>
+  <canvas id="led" width="320" height="320" title="Touche une partie pour la régler"></canvas>
+  </div>
+  <div class="side">
+    <div class="chips" id="zones">
+      <button class="chip on" data-zone="">Tout</button><button class="chip" data-zone="clock">Heure</button>
+      <button class="chip" data-zone="date">Date</button>
+      <button class="chip" data-zone="name">Ville</button><button class="chip" data-zone="today">Aujourd'hui</button>
+      <button class="chip" data-zone="strip">En bas</button>
+</div>
+    <div class="row" id="edit" hidden>
+      <button class="ghost" data-edit="smaller" title="Plus petit">A↓</button><button class="ghost" data-edit="bigger" title="Plus grand">A↑</button>
+      <button class="ghost" data-move="-1,0" title="1 LED à gauche">←</button><button class="ghost" data-move="1,0" title="1 LED à droite">→</button>
+      <button class="ghost" data-move="0,-1" title="1 LED plus haut">↑</button><button class="ghost" data-move="0,1" title="1 LED plus bas">↓</button>
+      <button class="ghost" data-edit="remove" title="L'enlever de cet écran">Retirer</button><button class="ghost" data-edit="reset" title="Remettre à sa place">↺</button><button class="ghost" id="grid2" title="Grille (aimantage)">▦</button>
+      <label class="muted" title="Une ligne de cette couleur autour (du noir se voit avec : une LED noire est éteinte)"><input type="checkbox" id="olOn"> contour</label><input type="color" id="ol" value="#ffffff">
+      <span id="alignRow"><button class="ghost" data-align="left" title="À gauche">⇤</button><button class="ghost" data-align="center" title="Au centre">↔</button><button class="ghost" data-align="right" title="À droite">⇥</button></span>
+      <span class="muted">glisse-le sur l'aperçu<span id="snapHint"> (aimanté à la grille)</span></span></div>
+    <div class="row" id="nameRow" hidden><input class="grow" id="scrName" maxlength="40"></div>
+    <div id="cdRow" hidden>
+      <div class="row"><input class="grow" id="cdTitle" maxlength="40" placeholder="Vacances aux Maldives"></div>
+      <div class="row"><input type="date" id="cdDate"> <label><input type="checkbox" id="cdWeekend"> le week-end</label></div></div>
+    <p class="muted" id="summary"></p>
+    <p class="muted" id="weight"></p>
+    <p class="error" id="err"></p>
+  </div>
+</section>
+
+<div class="overlay" id="presets" hidden>
+  <div class="box"><h2>Nouvel écran</h2>
+    <p class="muted">Vide, ou déjà rempli : tu le changes ensuite.</p>
+    <div class="grid" id="presetGrid"></div>
+    <p class="muted">Ou une copie d'un de tes écrans :</p>
+    <div class="grid" id="copyGrid"></div>
+    <div class="row"><span class="grow"></span><button class="ghost" id="presetCancel">Annuler</button></div></div>
+</div>
+
+<section data-global id="screen">
+  <h2 id="scrTitle">Écran 1</h2>
+  <div class="row" id="scrParts"></div>
+  <p class="muted" style="margin:8px 0 4px">Ajouter : touche ce que tu veux, puis « + Ajouter »</p>
+  <div class="chips" id="addParts"></div>
+  <div class="row"><button id="addSel" disabled>+ Ajouter</button> <input type="number" id="scrSec" min="1" max="600"> s
+    <span id="scrPlaceRow"><select id="scrPlace"></select></span></div>
+  <div class="row"><label><input type="checkbox" id="scrHoursOn"> de</label>
+    <input type="number" id="scrFrom" min="0" max="23"> h à <input type="number" id="scrTo" min="0" max="24"> h
+    <span class="grow"></span>
+    <button class="ghost small" id="scrLeft" title="Plus tôt dans la boucle">←</button><button class="ghost small" id="scrRight" title="Plus tard dans la boucle">→</button>
+    <button class="ghost small" id="grid" title="Grille toutes les 8 LED (aimantée)">▦</button>
+    <button class="ghost small" id="resetAll" title="Remettre chaque partie de cet écran à sa place et à sa taille">↺</button>
+    <button class="ghost small" id="scrDelete" title="Supprimer cet écran">🗑</button></div>
+</section>
+
+<details class="sec" data-tab="settings" id="frameSec" open><summary>Le cadre</summary>
+  <div class="row"><span class="grow" id="device">Aucun cadre choisi</span>
+    <select id="size" title="Taille du cadre"><option value="64">64×64</option><option value="32">32×32</option><option value="16">16×16</option></select></div>
+  <div class="row"><button class="ghost" id="scan">Chercher les cadres</button><span class="muted" id="scanmsg"></span></div>
+  <div class="chips" id="found"></div>
+  <p class="muted">Ferme l'appli iDotMatrix : le cadre n'accepte qu'un téléphone à la fois.</p>
+</details>
+
+<details class="zone sec" data-zone="agenda" id="agendaSec"><summary>Agenda</summary>
+  <div class="row"><label><input type="radio" name="astyle" value="list" checked> liste</label>
+    <label><input type="radio" name="astyle" value="timeline"> frise</label></div>
+  <div class="row"><b>Défilement</b>
+    <label><input type="radio" name="speed" value="slow"> lent</label>
+    <label><input type="radio" name="speed" value="normal" checked> normal</label>
+    <label><input type="radio" name="speed" value="fast"> rapide</label>
+    <label><input type="radio" name="speed" value="faster"> très rapide</label></div>
+  <div id="icsRow"><div class="row"><button class="ghost small" id="pickCalendars">Choisir les agendas du téléphone</button>
+    <button class="ghost small" id="syncCalendars" title="Demande à Android de synchroniser tes agendas maintenant, puis les relit">⟳ Actualiser</button>
+    <span class="muted" id="calmsg"></span></div>
+    <div class="row" id="calendars"></div></div>
+  <div class="row"><b>Mes rendez-vous</b><span class="muted">(en plus de ceux du téléphone)</span></div>
+  <div id="events" class="list"></div>
+  <div class="row"><button class="ghost small" id="addEvent">+ Événement</button></div>
+</details>
+
+<details class="zone sec" data-zone="name"><summary>Villes</summary>
+  <div id="places"></div>
+  <div class="row"><button class="ghost small" id="add">+ Ajouter une ville</button>
+    <span id="switchRow">changer toutes les <input type="number" id="switch" min="1" max="600" value="15"> s</span></div>
+  <div class="row"><label><input type="checkbox" id="cityTime" checked> l'heure de chaque ville (avec sa météo)</label></div>
+</details>
+
+<details class="zone sec" data-zone="clock"><summary>Heure</summary>
+  <div class="row"><b>Style</b>
+    <label><input type="radio" name="style" value="digits" checked> chiffres</label>
+    <label><input type="radio" name="style" value="flip"> cartes qui basculent (HTC)</label></div>
+  <div class="row">
+    <label><input type="radio" name="h24" value="24" checked> 24 h</label><label><input type="radio" name="h24" value="12"> 12 h</label>
+    <label><input type="checkbox" id="seconds" checked> secondes</label>
+    <label>couleur <input type="color" id="color" value="#78beff"></label></div>
+  <div class="row"><b>Format</b><input type="text" id="tformat" class="grow" maxlength="20" placeholder="HH:mm (vide : l'habituel)"></div>
+  <p class="muted">HH 14 · H 9 · hh 02 · h 2 · mm minutes · ss secondes · tt AM/PM. Avec ss, les secondes sont dans l'heure.</p>
+</details>
+
+<details class="zone sec" data-zone="date"><summary>Date</summary>
+  <div class="row"><b>Format</b><input type="text" id="dformat" class="grow" maxlength="30" placeholder="ww d (vide : l'habituel)"></div>
+  <p class="muted">dddd LUNDI · ddd LUN · ww LU · dd 03 · d 3 · mmmm NOVEMBRE · mmm NOV · mm 11 · yyyy 2026 · yy 26. Exemples : dd/mm · mm/dd/yy · ddd d mmm.</p>
+</details>
+
+<details class="zone sec" data-zone="clock"><summary>Secondes</summary>
+  <div class="row">
+    <label><input type="radio" name="sstyle" value="auto" checked> auto</label>
+    <label><input type="radio" name="sstyle" value="digits"> chiffres</label>
+    <label><input type="radio" name="sstyle" value="bar"> barre</label>
+    <label><input type="radio" name="sstyle" value="ring"> anneau</label></div>
+  <div class="row"><label><input type="checkbox" id="scolorOn"> couleur à part</label> <input type="color" id="scolor" value="#ffffff">
+    <span class="muted">la taille (−/+) règle l'épaisseur de la barre, la taille des chiffres ou de l'anneau</span></div>
+</details>
+
+<details class="zone sec" data-zone="today"><summary>Aujourd'hui</summary>
+  <div class="row" id="details"><b>Afficher</b> <label><input type="checkbox" data-detail="icon" checked> icône</label><label><input type="checkbox" data-detail="temp" checked> température</label><label><input type="checkbox" data-detail="minmax" checked> min/max</label><label><input type="checkbox" data-detail="drop" checked> goutte</label></div>
+  <div class="row"><label><input type="checkbox" id="anim" checked> icône animée (la pluie tombe, le soleil brille, la goutte coule…)</label></div>
+  <div class="row"><b>La goutte</b>
+    <label><input type="radio" name="drop" value="rain" checked> risque de pluie</label>
+    <label><input type="radio" name="drop" value="humidity"> humidité</label></div>
+  <div class="row"><b>Luminosité</b><label><input type="checkbox" id="bright"> selon le soleil</label></div>
+  <div class="row" id="brightRow">jour <input type="range" id="day" min="5" max="100" step="5" value="100"> <span id="dayv"></span>
+    nuit <input type="range" id="night" min="5" max="100" step="5" value="20"> <span id="nightv"></span></div>
+  <div class="row"><b>Météo</b> mise à jour toutes les <select id="refresh">
+    <option value="900">15 min</option><option value="1800" selected>30 min</option><option value="3600">1 h</option></select></div>
+</details>
+
+<details class="zone sec" data-zone="strip"><summary>En bas</summary>
+  <div class="row">
+    <label><input type="radio" name="strip" value="hours" checked> heures</label>
+    <label><input type="radio" name="strip" value="days"> jours</label>
+    <label><input type="radio" name="strip" value="sun"> soleil</label></div>
+  <div class="row" id="hoursRow"><b>4 heures</b>
+    <select id="hmode"><option value="step">toutes les</option><option value="at">à heures fixes</option></select>
+    <select id="step"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>6</option></select>
+    <span id="at"><input type="number" min="0" max="23" placeholder="h"> <input type="number" min="0" max="23" placeholder="h">
+      <input type="number" min="0" max="23" placeholder="h"> <input type="number" min="0" max="23" placeholder="h"></span></div>
+</details>
+
+<section data-tab="content" id="todaySec">
+  <h2>Aujourd'hui</h2>
+  <div id="todayLists"><p class="muted">Pour l'agenda : touche-le sur un écran (ses options : tes agendas, tes rendez-vous). Ajoute un écran Saint du jour ou Journées mondiales pour choisir ce qu'il montre.</p></div>
+</section>
+
+<details class="sec" data-tab="content" open><summary>Agendas, anniversaires, rappels, notes</summary>
+  <p class="muted">Ce que montrent les écrans qui ont ces parties (ajoute-les à un écran).</p>
+  <div class="row"><b>Anniversaires</b><button class="ghost small" id="contacts">Ceux des contacts du téléphone</button>
+    <span class="muted" id="contactsmsg"></span></div>
+  <div id="birthdays" class="list"></div>
+  <div class="row"><button class="ghost small" id="addBirthday">+ Anniversaire</button></div>
+  <div class="row"><b>Saint</b><input id="saintTitle" maxlength="24" placeholder="BONNE FÊTE">
+    <label><input type="checkbox" id="saintTo" checked> « À » / « AUX »</label></div>
+  <div class="row"><b>N'oubliez pas</b><span class="muted">l'agenda du jour, et :</span></div>
+  <div id="reminders" class="list"></div>
+  <div class="row"><button class="ghost small" id="addReminder">+ Rappel</button></div>
+  <div class="row"><b>Notes</b><span class="muted">(ou Partager → Pixel Météo depuis Keep)</span></div>
+  <div id="notes" class="list"></div>
+  <div class="row"><button class="ghost small" id="addNote">+ Note</button></div>
+  <p class="muted" id="pagesToday"></p>
+</details>
+
+<section data-tab="settings">
+  <h2>Diagnostic</h2>
+  <div class="row"><button class="ghost" id="diagnostic">Exporter un diagnostic (zip)</button></div>
+  <p class="muted" id="diagmsg">Un zip avec tout (réglages, état, agendas et rendez-vous du jour, ce que l'appli en fait, une image de
+    chaque écran, le journal) : enregistré dans Téléchargements, à m'envoyer pour comprendre ce qui ne va pas.</p>
+</section>
+
+<section data-tab="settings">
+  <h2>Partager</h2>
+  <div class="row"><button class="ghost" id="shareConfig">Partager mes écrans</button></div>
+  <p class="muted">Envoie tout (écrans, villes, notes, anniversaires, rappels) par WhatsApp, SMS, mail… Sur l'autre
+    téléphone : sur le message, Partager → Pixel Météo. Ses notes s'ajoutent aux tiennes ; renvoie-le-toi pour récupérer les siennes.
+    Un seul téléphone à la fois pilote le cadre.</p>
+</section>
+
+<section data-tab="settings">
+  <h2>Sur le cadre</h2>
+  <div class="row"><label><input type="checkbox" id="follow" checked> Suivre l'écran du téléphone</label>
+    <span class="muted">(le cadre montre l'écran que tu règles ; décoché ou appli quittée : les écrans défilent)</span></div>
+  <div class="row"><span class="grow" id="status"></span><button class="ghost" id="stop" title="Rend le cadre à l'appli iDotMatrix jusqu'au prochain changement">Arrêter</button></div>
+  <p class="muted" id="batteryRow">Pour que l'heure avance téléphone en veille :
+    <button class="ghost small" id="battery">Ne pas limiter la batterie</button></p>
+  <p class="muted">Tout part au cadre en direct, sans rien appuyer. Le téléphone reste près du cadre, appli lancée (écran éteint, ça va).</p>
+</section>
+
+<nav id="tabs">
+  <button class="on" data-tab="screens"><b>🖼</b>Écrans</button>
+  <button data-tab="content"><b>📝</b>Contenu</button>
+  <button data-tab="settings"><b>⚙</b>Réglages</button>
+</nav>
+
+<script>
+const $ = (sel) => document.querySelector(sel);
+const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const calls = {};
+let seq = 0;
+window.reply = (id, ok, result) => { const c = calls[id]; delete calls[id]; if (c) (ok ? c.resolve : c.reject)(result); };
+const ask = (method, ...args) => new Promise((resolve, reject) => { const id = ++seq; calls[id] = { resolve, reject }; Android[method](id, ...args); });
+
+let state = JSON.parse(Android.state());
+const view = Object.assign({ profiles: [{ source: "place", place: null }], switch_seconds: 15, seconds: true, animate: true, clock_color: "#78beff",
+  strip: "hours", hours_step: 3, hours_at: null, hour24: true, brightness: null }, state.config || {});
+const found = {};
+let timer = null;
+let previewSeq = 0;
+
+/** The city of the screen being set (each screen has its own; several may share one). */
+function drawPlaces() {
+  const i = Math.min(view.screens?.[cur]?.place || 0, view.profiles.length - 1);
+  const p = view.profiles[i];
+  const shared = (view.screens || []).map((_sc, n) => n).filter((n) => n !== cur && (view.screens[n].place || 0) === i);
+  $("#places").innerHTML = `<div class="place" data-p="${i}">
+    <div class="row"><b>Ville de l'écran ${cur + 1}</b>
+      ${shared.length ? `<span class="muted">(la même que l'écran ${shared.map((n) => n + 1).join(", ")} : la changer ici ne change que cet écran)</span>` : ""}</div>
+    <div class="row"><input type="search" class="grow" data-q placeholder="Ville, village…" value="${esc(p.place?.name || "")}">
+      <button class="small" data-find>Chercher</button></div>
+    <div class="chips" data-results></div>
+    <div class="row"><span class="muted">Nom écrit</span><input class="grow" data-label maxlength="40"
+      placeholder="${esc((p.place?.name || "").split(",")[0])} (emoji 🏠 permis)" value="${esc(p.label || "")}"></div></div>`;
+  $("#add").hidden = true;
+  $("#switchRow").hidden = (view.screens || []).filter((sc) => ["name", "today", "strip"].some((k) => sc.parts?.[k])).length < 2;
+}
+
+/** The city ``i`` for this screen alone: when other screens show it too, this screen gets a copy. */
+function ownProfile(i) {
+  const others = (view.screens || []).some((sc, n) => n !== cur && (sc.place || 0) === i);
+  if (!others || view.profiles.length >= 12) return i;
+  view.profiles.push(structuredClone(view.profiles[i]));
+  view.screens[cur].place = view.profiles.length - 1;
+  return view.profiles.length - 1;
+}
+
+/** Cities no screen shows any more are dropped (the screens' numbers follow). */
+function pruneProfiles() {
+  if (!view.screens?.length) return false;
+  const used = [...new Set(view.screens.map((sc) => Math.min(sc.place || 0, view.profiles.length - 1)))].sort((a, b) => a - b);
+  if (used.length === view.profiles.length) return false;
+  const renumber = Object.fromEntries(used.map((p, k) => [p, k]));
+  view.profiles = used.map((p) => view.profiles[p]);
+  view.screens.forEach((sc) => { sc.place = renumber[Math.min(sc.place || 0, used.at(-1))] ?? 0; });
+  return true;
+}
+
+function readOptions() {
+  view.hour24 = document.querySelector("input[name=h24]:checked").value === "24";
+  view.strip = document.querySelector("input[name=strip]:checked").value;
+  view.seconds = $("#seconds").checked;
+  view.time_format = $("#tformat").value.trim();
+  view.date_format = $("#dformat").value.trim();
+  view.seconds_style = document.querySelector("input[name=sstyle]:checked").value;
+  view.seconds_color = $("#scolorOn").checked ? $("#scolor").value : null;
+  view.drop = document.querySelector("input[name=drop]:checked").value;
+  view.agenda_style = document.querySelector("input[name=astyle]:checked").value;
+  view.scroll_speed = document.querySelector("input[name=speed]:checked").value;
+  const ticked = [...document.querySelectorAll("[data-acal]")];
+  if (ticked.length) view.agenda_device = ticked.filter((b) => b.checked).map((b) => b.dataset.acal);
+  view.saint_title = $("#saintTitle").value.trim() || "BONNE FÊTE";
+  view.saint_to = $("#saintTo").checked;
+  view.reminders = [...document.querySelectorAll("#reminders [data-r]")].map((row) => {
+    const date = row.querySelector("[data-rdate]").value;
+    const days = [...row.querySelectorAll("[data-rday]")].filter((b) => b.checked).map((b) => Number(b.dataset.rday));
+    return { text: row.querySelector("[data-rtext]").value.trim(), date: date || null, days: date ? null : days };
+  }).filter((r) => r.text);
+  view.notes = [...document.querySelectorAll("#notes [data-note]")].map((t) => t.value.trim()).filter(Boolean);
+  view.events = [...document.querySelectorAll("#events [data-e]")].map((row) => ({
+    title: row.querySelector("[data-etitle]").value.trim(), date: row.querySelector("[data-edate]").value,
+    time: row.querySelector("[data-etime]").value || null,
+  })).filter((e) => e.title && /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(e.date));
+  view.birthdays = [...document.querySelectorAll("#birthdays [data-b]")].map((row) => ({
+    name: row.querySelector("[data-bname]").value.trim(), date: row.querySelector("[data-bdate]").value,
+  })).filter((b) => b.name && /^(\d{4}-)?\d{2}-\d{2}$/.test(b.date));
+  view.clock_style = document.querySelector("input[name=style]:checked").value;
+  view.animate = $("#anim").checked;
+  view.clock_color = $("#color").value;
+  const every = Math.max(1, Math.min(600, Number($("#switch").value) || 15));
+  if (every !== view.switch_seconds && view.screens) {  // the cities' screens take that time
+    view.screens.forEach((sc) => { if (["name", "today", "strip"].some((p) => sc.parts?.[p])) sc.seconds = every; });
+    if (typeof drawScreen === "function" && view.screens.length) setTimeout(drawScreen);
+  }
+  view.switch_seconds = every;
+  view.city_time = $("#cityTime").checked;
+  view.hours_step = Number($("#step").value);
+  const fixed = $("#hmode").value === "at";
+  const hours = [...document.querySelectorAll("#at input")].map((i) => i.value).filter((v) => v !== "").map(Number)
+    .filter((h) => h >= 0 && h <= 23);
+  view.hours_at = fixed && hours.length ? hours : null;
+  view.brightness = $("#bright").checked ? { day: Number($("#day").value), night: Number($("#night").value) } : null;
+  $("#hoursRow").hidden = view.strip !== "hours";
+  $("#step").hidden = fixed;
+  $("#at").hidden = !fixed;
+  $("#brightRow").hidden = !view.brightness;
+  $("#dayv").textContent = `${$("#day").value} %`;
+  $("#nightv").textContent = `${$("#night").value} %`;
+}
+
+function writeOptions() {
+  document.querySelector(`input[name=h24][value="${view.hour24 === false ? 12 : 24}"]`).checked = true;
+  document.querySelector(`input[name=strip][value="${view.strip || "hours"}"]`).checked = true;
+  $("#seconds").checked = view.seconds !== false;
+  $("#tformat").value = view.time_format || "";
+  $("#dformat").value = view.date_format || "";
+  document.querySelector(`input[name=sstyle][value="${view.seconds_style || "auto"}"]`).checked = true;
+  $("#scolorOn").checked = !!view.seconds_color;
+  $("#scolor").value = view.seconds_color || "#ffffff";
+  document.querySelector(`input[name=drop][value="${view.drop === "humidity" ? "humidity" : "rain"}"]`).checked = true;
+  document.querySelector(`input[name=astyle][value="${view.agenda_style === "timeline" ? "timeline" : "list"}"]`).checked = true;
+  document.querySelector(`input[name=speed][value="${view.scroll_speed || "normal"}"]`).checked = true;
+  $("#calmsg").textContent = (view.agenda_device || []).length ? `${view.agenda_device.length} agenda(s) choisi(s)` : "";
+  $("#saintTitle").value = view.saint_title || "";
+  $("#saintTo").checked = view.saint_to !== false;
+  $("#contactsmsg").textContent = view.contacts_birthdays ? "pris en compte" : "";
+  drawBirthdays(view.birthdays || []);
+  drawReminders(view.reminders || []);
+  drawNotes(view.notes || []);
+  drawEvents(view.events || []);
+  document.querySelector(`input[name=style][value="${view.clock_style === "flip" ? "flip" : "digits"}"]`).checked = true;
+  $("#anim").checked = view.animate !== false;
+  $("#color").value = view.clock_color || "#78beff";
+  $("#switch").value = String(view.switch_seconds || 15);
+  $("#cityTime").checked = view.city_time !== false;
+  $("#step").value = String(view.hours_step || 3);
+  $("#hmode").value = view.hours_at?.length ? "at" : "step";
+  document.querySelectorAll("#at input").forEach((input, i) => { input.value = view.hours_at?.[i] ?? ""; });
+  $("#bright").checked = !!view.brightness;
+  $("#day").value = view.brightness?.day ?? 100;
+  $("#night").value = view.brightness?.night ?? 20;
+  $("#refresh").value = String(state.refresh || 1800);
+}
+
+const DAYS = ["L", "M", "M", "J", "V", "S", "D"];
+/** Reminders: a text, each week on some days (none: every day), or on a date. */
+function drawReminders(list) {
+  $("#reminders").innerHTML = list.map((r, i) => `<div data-r="${i}"><div class="row">🔔
+    <input class="grow" data-rtext maxlength="60" placeholder="Sortir les poubelles" value="${esc(r.text || "")}">
+    <button class="ghost small" data-rdel>🗑</button></div>
+    <div class="row days">${DAYS.map((d, n) => `<label><input type="checkbox" data-rday="${n}" ${(r.days || []).includes(n) ? "checked" : ""}>${d}</label>`).join("")}
+      <span class="muted">ou le</span><input type="date" data-rdate value="${esc(r.date && r.date.length === 10 ? r.date : "")}"></div></div>`).join("");
+}
+/** Appointments typed in: a title, a day, a time (empty: all day). */
+function drawEvents(list) {
+  $("#events").innerHTML = list.map((e, i) => `<div data-e="${i}"><div class="row">📅
+    <input class="grow" data-etitle maxlength="60" placeholder="Dentiste" value="${esc(e.title || "")}">
+    <button class="ghost small" data-edel>🗑</button></div>
+    <div class="row"><input type="date" data-edate value="${esc(e.date || "")}"> <input type="time" data-etime value="${esc(e.time || "")}"></div></div>`).join("");
+}
+/** Notes: just text. */
+function drawNotes(list) {
+  $("#notes").innerHTML = list.map((t, i) => `<div class="row" data-n="${i}">
+    <textarea class="grow" data-note rows="2" maxlength="200">${esc(t)}</textarea>
+    <button class="ghost small" data-ndel>🗑</button></div>`).join("");
+}
+
+/** Birthdays: a name and a date (the year, if given, tells the age). */
+function drawBirthdays(list) {
+  $("#birthdays").innerHTML = list.map((b, i) => `<div class="row" data-b="${i}">🎂
+    <input class="grow" data-bname maxlength="40" placeholder="Prénom" value="${esc(b.name || "")}">
+    <input type="date" data-bdate value="${esc(b.date && b.date.length === 10 ? b.date : b.date ? `2000-${b.date}` : "")}">
+    <button class="ghost small" data-bdel>🗑</button></div>`).join("");
+}
+
+const ready = () => view.profiles.every((p) => p.place);
+const size = () => Number($("#size").value);
+
+let lastSaved = "";
+function save() {
+  if (pruneProfiles()) drawPlaces();
+  readOptions();
+  const json = JSON.stringify(view);
+  const refresh = Number($("#refresh").value);
+  if (!ready() || json + refresh === lastSaved) return;  // the same as just sent: not again (no double send)
+  lastSaved = json + refresh;
+  Android.save(json, refresh);
+}
+
+function changed() {
+  save();
+  preview(true);
+}
+
+// The screen's parts, in rows of a 64-pixel screen (the same proportions on smaller ones).
+const ZONES = [["clock", 0, 14], ["name", 14, 21], ["today", 21, 37], ["strip", 37, 64]];
+// The parts a screen can have (meteo.py WEATHER_PARTS, PAGE_PARTS) and their names.
+const PARTS = { clock: "Heure", seconds: "Secondes", date: "Date", name: "Ville", today: "Météo du jour", strip: "En bas",
+  days: "Prochains jours", sun: "Lever / coucher",
+  special: "Fêtes", birthdays: "Anniversaires", countdown: "Compte à rebours", reminders: "N'oubliez pas", notes: "Notes",
+  saint: "Saint du jour", world_days: "Journées mondiales", agenda: "Agenda", thought: "Philosophie",
+  humor: "Citations marrantes", proverb: "Dictons", fact: "Savoir inutile", motivation: "Courage", wellbeing: "Bien-être",
+  word: "Mot du jour" };
+const WEATHER = ["clock", "seconds", "date", "name", "today", "strip"];  // the seconds: with the clock
+// « + »: an empty screen, or one already filled (meteo.py SCREEN_PRESETS), changed afterwards.
+const PRESETS = [["empty", "Vide"], ["weather", "Météo"], ...Object.keys(PARTS).filter((k) => !WEATHER.includes(k)).map((k) => [k, PARTS[k]])];
+const presetParts = (key) => key === "empty" ? [] : key === "weather" ? WEATHER.filter((p) => p !== "seconds") : ["clock", key];
+// Each part's sizes, as the engine has them (meteo.py SIZES), and its usual one.
+const SIZES = { clock: [1, 2], seconds: [1, 3], date: [1, 2], name: [1, 2], today: [1, 3], strip: [1, 2], days: [1, 2], sun: [1, 2] };
+Object.keys(PARTS).forEach((k) => { SIZES[k] ||= [1, 3]; });
+const usualSize = (name) => ({ clock: 2, seconds: 1, date: 1, name: 1, today: 2,
+  strip: view.clock_style === "flip" ? 1 : 2, days: view.clock_style === "flip" ? 1 : 2, sun: view.clock_style === "flip" ? 1 : 2 }[name] ?? 2);
+let zone = "";
+// The screens: none yet (a view from before), the weather as it was, one per place.
+if (!view.screens?.length) {
+  const kept = (layout) => Object.fromEntries(WEATHER.filter((p) => !layout?.[p]?.hidden).map((p) => [p, { ...(layout?.[p] || {}) }]));
+  view.screens = view.profiles.map((_p, i) => ({ place: i, seconds: view.switch_seconds || 15, parts: kept(view.layout) }));
+}
+let cur = 0;          // the screen being set
+let playing = false;  // ▶: the preview shows them in turn
+const screen = () => view.screens[Math.min(cur, view.screens.length - 1)];
+
+function pickZone(name) {
+  zone = name;
+  document.querySelectorAll("#zones [data-zone]").forEach((chip) => chip.classList.toggle("on", chip.dataset.zone === zone));
+  // Nothing picked: every setting. A part picked: only its own (and the display and Start).
+  document.querySelectorAll(".zone").forEach((part) => {
+    const wanted = zone === "seconds" ? "clock" : zone;  // the seconds' settings are the time's
+    part.hidden = !!wanted && part.dataset.zone !== wanted;
+    if (wanted && part.dataset.zone === wanted) part.open = true;
+  });
+  document.querySelectorAll("[data-global]").forEach((part) => { part.hidden = !!zone; });
+  if (zone) window.scrollTo({ top: 0, behavior: "smooth" });
+  drawEdit();
+  outline();
+}
+
+let boxes = {};
+
+let grid = false;
+try { grid = localStorage.getItem("pm-grid") === "1"; } catch (_e) { /* no storage */ }
+
+/** Lines every 8 LEDs (the middle ones brighter), over the preview. */
+function drawGrid(ctx, width) {
+  const k = width / 64;
+  for (let i = 8; i < 64; i += 8) {
+    ctx.fillStyle = i === 32 ? "rgba(74,163,255,.55)" : "rgba(255,255,255,.18)";
+    ctx.fillRect(i * k - 0.5, 0, 1, width);
+    ctx.fillRect(0, i * k - 0.5, width, 1);
+  }
+}
+
+function outline() {
+  const canvas = $("#led");
+  const ctx = canvas.getContext("2d");
+  if (grid && lastPixels) drawGrid(ctx, canvas.width);
+  const box = boxes[zone];
+  if (!box || !lastPixels) return;
+  const k = canvas.width / 64;
+  ctx.strokeStyle = "#4aa3ff";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(box[0] * k - 1, box[1] * k - 1, (box[2] - box[0]) * k + 2, (box[3] - box[1]) * k + 2);
+}
+
+const part = (name) => ((screen().parts ||= {})[name] ||= {});
+
+function drawEdit() {
+  $("#edit").hidden = !zone;
+  if (!zone) return;
+  const p = screen().parts?.[zone] || {};
+  document.querySelectorAll("[data-pick]").forEach((n) => n.classList.toggle("on", n.dataset.pick === zone));
+  $("#edit").hidden = !SIZES[zone] || !screen().parts?.[zone];
+  $("#cdRow").hidden = zone !== "countdown" || $("#edit").hidden;
+  $("#nameRow").hidden = zone !== "name" || $("#edit").hidden;
+  if (!$("#nameRow").hidden) {  // this screen's own name, else the city's
+    const city = view.profiles[screen().place || 0] || {};
+    $("#scrName").placeholder = `Nom sur cet écran (${(city.label || city.place?.name || "la ville").split(",")[0]})`;
+    $("#scrName").value = part("name").title || "";
+  }
+  if ($("#edit").hidden) return;
+  $("#olOn").checked = !!p.outline;
+  $("#ol").value = p.outline || "#ffffff";
+  $("#cdTitle").value = p.title || "";
+  $("#cdWeekend").checked = p.date === "weekend";
+  $("#cdDate").value = p.date && p.date !== "weekend" ? p.date.slice(0, 10) : "";
+  $("#cdDate").disabled = p.date === "weekend";
+  const [low, high] = SIZES[zone];
+  const size = p.size || usualSize(zone);
+  document.querySelector('[data-edit="smaller"]').disabled = size <= low;
+  document.querySelector('[data-edit="bigger"]').disabled = size >= high;
+  $("#alignRow").hidden = zone !== "name";
+  document.querySelectorAll("[data-align]").forEach((b) => b.classList.toggle("on", (p.align || "center") === b.dataset.align));
+  $("#snapHint").hidden = !grid;
+}
+
+/** The part of this screen under a point of the preview (in LEDs): where it is now, else by rows. */
+function partAt(x, y) {
+  const on = screen().parts || {};
+  const hit = Object.entries(boxes).find(([k, b]) => on[k] && x >= b[0] - 1 && x <= b[2] + 1 && y >= b[1] - 1 && y <= b[3] + 1);
+  return hit ? hit[0] : ZONES.find(([k, from, to]) => on[k] && y >= from && y < to)?.[0] || "";
+}
+
+let lastPixels = null;
+
+async function drawLed(url) {
+  const img = new Image();
+  await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; img.src = url; });
+  const n = img.width;
+  const small = document.createElement("canvas");
+  small.width = small.height = n;
+  const sctx = small.getContext("2d");
+  sctx.drawImage(img, 0, 0);
+  const px = sctx.getImageData(0, 0, n, n).data;
+  const canvas = $("#led");
+  const ctx = canvas.getContext("2d");
+  const cell = canvas.width / n;
+  ctx.fillStyle = "#050505";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  for (let y = 0; y < n; y++) {
+    for (let x = 0; x < n; x++) {
+      const i = (y * n + x) * 4;
+      const lit = Math.max(px[i], px[i + 1], px[i + 2]) >= 28;
+      ctx.fillStyle = lit ? `rgb(${px[i]},${px[i + 1]},${px[i + 2]})` : "#1c1c1c";
+      ctx.beginPath();
+      ctx.arc((x + 0.5) * cell, (y + 0.5) * cell, cell * 0.42, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+  }
+  lastPixels = px;
+  outline();
+}
+
+async function preview(minute = false) {
+  clearTimeout(timer);
+  const mine = ++previewSeq;
+  if (!ready()) {
+    $("#summary").textContent = "Tape une ville puis « Chercher ».";
+    return;
+  }
+  try {
+    const res = await ask("preview", JSON.stringify(view), size(), Number($("#refresh").value), minute, playing ? -1 : cur);
+    follow();  // the frame shows the screen being set
+    drawPageNums(res.titles || [], res.page);
+    if (mine !== previewSeq) return;
+    $("#err").textContent = "";
+    if (minute) {
+      $("#summary").innerHTML = res.forecasts.map((f) => [`📍 ${esc(f.place.split(",")[0])}`,
+        f.temperature != null ? `${Math.round(f.temperature)}°` : "",
+        f.high != null ? `↑${Math.round(f.high)} ↓${Math.round(f.low)}` : "",
+        f.rain != null ? `pluie ${f.rain} %` : ""].filter(Boolean).join(" · ")).join("<br>");
+      // The agenda on a screen but no calendar ticked: say so (else it reads « rien de prévu »).
+      const wantsAgenda = view.screens.some((sc) => sc.parts?.agenda || sc.parts?.reminders);
+      if (wantsAgenda && !(view.agenda_device || []).length) {
+        $("#calmsg").innerHTML = `<span class="error">Choisis tes agendas (bouton ci-dessus), sinon l'agenda reste vide.</span>`;
+      }
+      drawToday(res.today);
+      $("#pagesToday").textContent = res.pages?.length
+        ? `Aujourd'hui il y a : ${[...new Set(res.pages)].map((k) => PARTS[k] || k).join(", ")}.` : "";
+      const packets = Math.ceil(res.minute_bytes / 4096);
+      $("#weight").textContent = `Chaque minute : ${(res.minute_bytes / 1024).toFixed(1)} Ko, ${packets} paquet${packets > 1 ? "s" : ""} Bluetooth (~${(packets * 0.6).toFixed(1)} s).`;
+    }
+    boxes = res.boxes || {};
+    await drawLed(res.png);
+  } catch (e) {
+    if (mine === previewSeq) $("#err").textContent = e;
+    return;
+  }
+  if (mine === previewSeq) timer = setTimeout(() => preview(), 1000 - (Date.now() % 1000) + 30);
+}
+
+let frameOpened = false;
+function showState() {
+  state = JSON.parse(Android.state());
+  $("#device").innerHTML = state.device ? `<b>${esc(state.device.name)}</b> <span class="muted">${esc(state.device.address)}</span>` : "Aucun cadre choisi";
+  if (state.device) $("#size").value = String(state.device.size);
+  $("#status").textContent = !state.device ? "Choisis le cadre (Chercher les cadres) : tout s'y affichera tout seul."
+    : state.running ? `▶ Sur le cadre · ${state.status || ""}` : "■ Arrêté : le prochain changement le remet sur le cadre.";
+  $("#status").className = `grow ${/Erreur|injoignable|En attente/.test(state.status) && state.running ? "error" : "muted"}`;
+  $("#stop").hidden = !state.running;
+  $("#batteryRow").hidden = state.battery_free;
+  if (!state.device && !frameOpened) {  // first: choose the frame
+    frameOpened = true;
+    document.querySelector('#tabs [data-tab="settings"]').click();
+  }
+}
+
+$("#scan").onclick = async () => {
+  $("#scan").disabled = true;
+  $("#scanmsg").textContent = "Recherche (6 s)…";
+  $("#found").innerHTML = "";
+  try {
+    const devices = await ask("scan");
+    $("#scanmsg").textContent = devices.length ? "Touche le tien :" : "Aucun cadre trouvé (allumé ? appli iDotMatrix fermée ?)";
+    $("#found").innerHTML = devices.map((d) => `<button class="chip" data-address="${esc(d.address)}" data-name="${esc(d.name)}">${esc(d.name)}</button>`).join("");
+  } catch (e) {
+    $("#scanmsg").innerHTML = `<span class="error">${esc(e)}</span>`;
+  }
+  $("#scan").disabled = false;
+};
+$("#found").onclick = (ev) => {
+  const chip = ev.target.closest("[data-address]");
+  if (!chip) return;
+  Android.choose(chip.dataset.address, chip.dataset.name, size());
+  $("#found").innerHTML = "";
+  $("#scanmsg").textContent = "";
+  showState();
+};
+$("#size").onchange = () => {
+  if (state.device) Android.choose(state.device.address, state.device.name, size());
+  preview(true);
+};
+$("#places").onclick = async (ev) => {
+  const box = ev.target.closest("[data-p]");
+  if (!box) return;
+  const i = Number(box.dataset.p);
+  if (ev.target.closest("[data-del]")) {
+    view.profiles.splice(i, 1);
+    drawPlaces();
+    changed();
+  } else if (ev.target.closest("[data-find]")) {
+    const query = box.querySelector("[data-q]").value.trim();
+    const list = box.querySelector("[data-results]");
+    if (query.length < 2) return;
+    list.innerHTML = `<span class="muted">Recherche…</span>`;
+    try {
+      found[i] = await ask("geocode", query);
+      list.innerHTML = found[i].map((p, n) => `<button class="chip" data-place="${n}">📍 ${esc(p.name)}</button>`).join("")
+        || `<span class="muted">Aucun lieu de ce nom.</span>`;
+    } catch (e) {
+      list.innerHTML = `<span class="error">${esc(e)}</span>`;
+    }
+  } else if (ev.target.closest("[data-place]")) {
+    const place = found[i][Number(ev.target.closest("[data-place]").dataset.place)];
+    const own = ownProfile(i);  // the other screens keep their city
+    view.profiles[own] = { ...view.profiles[own], source: "place", place };
+    drawPlaces();
+    changed();
+  }
+};
+$("#places").onchange = (ev) => {
+  const box = ev.target.closest("[data-p]");
+  if (box && ev.target.matches("[data-label]")) {
+    box.dataset.p = String(ownProfile(Number(box.dataset.p)));
+    view.profiles[Number(box.dataset.p)].label = ev.target.value.trim() || null;
+    changed();
+  }
+};
+$("#places").onkeydown = (ev) => { if (ev.key === "Enter" && ev.target.matches("[data-q]")) ev.target.closest("[data-p]").querySelector("[data-find]").click(); };
+$("#add").onclick = () => { view.profiles.push({ source: "place", place: null }); drawPlaces(); preview(); };
+document.querySelectorAll("section input, section select, section textarea, details input, details select, details textarea").forEach((el) => {
+  if (el.closest("#places, #screen, #edit, #cdRow, #reminders, #notes, #birthdays, #details, #events") || el.id === "size" || el.id === "follow") return;
+  el.addEventListener("change", changed);
+  if (el.type === "range") el.addEventListener("input", readOptions);
+  if (el.type === "text" || el.matches("input:not([type])")) el.addEventListener("input", liveSoon);
+});
+$("#places").addEventListener("input", (ev) => {
+  if (!ev.target.matches("[data-label]")) return;
+  const box = ev.target.closest("[data-p]");
+  box.dataset.p = String(ownProfile(Number(box.dataset.p)));  // the other screens keep their city
+  view.profiles[Number(box.dataset.p)].label = ev.target.value.trim() || null;
+  liveSoon();
+});
+try { $("#follow").checked = localStorage.getItem("pm-follow") !== "0"; } catch (_e) { /* no storage */ }
+$("#follow").onchange = () => {
+  try { localStorage.setItem("pm-follow", $("#follow").checked ? "1" : "0"); } catch (_e) { /* no storage */ }
+  follow();
+};
+// The frame follows the screen being set (told only when it changes).
+let followed = null;
+function follow() {
+  const screen = $("#follow").checked && !playing ? cur : -1;
+  if (screen !== followed) Android.follow(followed = screen);
+}
+// The bar at the bottom: Écrans, Contenu, Réglages.
+$("#tabs").onclick = (ev) => {
+  const tab = ev.target.closest("[data-tab]");
+  if (!tab) return;
+  pickZone("");
+  document.body.dataset.tab = tab.dataset.tab;
+  document.querySelectorAll("#tabs [data-tab]").forEach((b) => b.classList.toggle("on", b === tab));
+  window.scrollTo({ top: 0 });
+};
+$("#stop").onclick = () => { Android.stop(); setTimeout(showState, 500); };
+$("#battery").onclick = () => Android.batteryFree();
+$("#addBirthday").onclick = () => {
+  readOptions();
+  drawBirthdays([...(view.birthdays || []), { name: "", date: "" }]);
+};
+$("#birthdays").onclick = (ev) => {
+  const del = ev.target.closest("[data-bdel]");
+  if (!del) return;
+  del.closest("[data-b]").remove();
+  changed();
+};
+$("#birthdays").onchange = () => changed();
+// Touch a part to pick it (again: every setting back); drag a picked part to move it.
+let drag = null;
+const ledPoint = (ev) => {
+  const rect = $("#led").getBoundingClientRect();
+  return [((ev.clientX - rect.left) / rect.width) * 64, ((ev.clientY - rect.top) / rect.height) * 64];
+};
+$("#led").onpointerdown = (ev) => {
+  const [x, y] = ledPoint(ev);
+  const hit = partAt(x, y);
+  drag = { x, y, part: hit, moved: false, dx: screen().parts?.[hit]?.dx || 0, dy: screen().parts?.[hit]?.dy || 0,
+    box: boxes[hit] ? [...boxes[hit]] : null };
+  $("#led").setPointerCapture(ev.pointerId);
+};
+$("#led").onpointermove = (ev) => {
+  if (!drag || !drag.part) return;
+  const [x, y] = ledPoint(ev);
+  const dx = Math.round(x - drag.x);
+  const dy = Math.round(y - drag.y);
+  if (!drag.moved && Math.abs(dx) + Math.abs(dy) < 2) return;
+  if (!drag.moved && drag.part !== zone) pickZone(drag.part);  // grabbed and dragged in one go
+  drag.moved = true;
+  const p = part(zone);
+  const [sx, sy] = grid && drag.box ? snap(drag.box, dx, dy) : [dx, dy];
+  p.dx = Math.max(-63, Math.min(63, Math.round(drag.dx + sx)));  // whole LEDs (the grid's middle is a half)
+  p.dy = Math.max(-63, Math.min(63, Math.round(drag.dy + sy)));
+  if (!previewing) previewSoon();
+};
+// A tap picks (a click, which Android sends reliably); a drag that moved saves on release.
+let dragged = false;
+$("#led").onpointerup = $("#led").onpointercancel = () => {
+  if (!drag) return;
+  dragged = drag.moved;
+  if (drag.moved) changed();
+  drag = null;
+};
+$("#led").onclick = (ev) => {
+  if (dragged) { dragged = false; return; }
+  const [x, y] = ledPoint(ev);
+  const hit = partAt(x, y);
+  pickZone(hit === zone ? "" : hit);
+};
+/** A move (dx, dy) adjusted so that an edge or the middle of ``box`` lands on a grid line when within 2 LEDs. */
+function snap(box, dx, dy) {
+  const best = (edges, d) => {
+    let shift = 0;
+    let gap = 3;
+    for (const edge of edges) {
+      const at = edge + d;
+      const line = Math.round(at / 8) * 8;
+      if (Math.abs(line - at) < gap) { gap = Math.abs(line - at); shift = line - at; }
+    }
+    return d + shift;
+  };
+  return [best([box[0], box[2], (box[0] + box[2]) / 2], dx), best([box[1], box[3], (box[1] + box[3]) / 2], dy)];
+}
+let previewing = false;
+function previewSoon() {
+  previewing = true;
+  preview().finally(() => { previewing = false; });
+}
+// The screens: their numbers above the preview (touch one to set it), « + » to add one, ▶ to see
+// them take turns (greyed: nothing to show now, or out of its hours).
+let numsHtml = "";
+let screenTitles = [];
+function drawPageNums(titles, current) {
+  screenTitles = titles;
+  const html = titles.map((t, i) => `<button class="chip ${i === current ? "on" : ""} ${!playing && t.screen === cur ? "pinned" : ""}
+    ${t.off ? "off" : ""}" data-num="${t.screen ?? i}" title="${esc(t.title)}${t.off ? " (rien maintenant)" : ""}">${(t.screen ?? i) + 1}</button>`).join("")
+    + `<button class="chip plus" data-num="plus" title="Ajouter un écran">+</button>`
+    + `<button class="chip ${playing ? "pinned" : ""}" data-num="play" title="Les voir défiler">▶</button>`;
+  if (html !== numsHtml) $("#pagenums").innerHTML = numsHtml = html;  // only when it changes: a touch is not lost
+  const title = titles.find((t) => t.screen === cur)?.title;
+  $("#scrTitle").textContent = `Écran ${cur + 1}${title ? ` · ${title}` : ""}`;
+}
+$("#pagenums").onclick = (ev) => {
+  const chip = ev.target.closest("[data-num]");
+  if (!chip) return;
+  if (chip.dataset.num === "plus") {
+    $("#copyGrid").innerHTML = view.screens.map((_sc, i) => `<button data-copy="${i}">${i + 1} · ${esc(screenTitles.find((t) => t.screen === i)?.title || "Écran")}</button>`).join("");
+    $("#presets").hidden = false;
+    return;
+  }
+  if (chip.dataset.num === "play") playing = !playing;
+  else { cur = Number(chip.dataset.num); playing = false; }
+  pickZone("");
+  drawScreen();
+  drawPlaces();
+  preview();
+};
+$("#presetGrid").innerHTML = PRESETS.map(([k, label], i) => `<button class="${i < 2 ? "first" : ""}" data-preset="${k}">${label}</button>`).join("");
+$("#presets").onclick = (ev) => {
+  if (ev.target === $("#presets") || ev.target.closest("#presetCancel")) { $("#presets").hidden = true; return; }
+  const copy = ev.target.closest("[data-copy]");
+  const chip = ev.target.closest("[data-preset]");
+  if (!chip && !copy) return;
+  view.screens.push(copy ? structuredClone(view.screens[Number(copy.dataset.copy)])
+    : { place: 0, seconds: 15, parts: Object.fromEntries(presetParts(chip.dataset.preset).map((p) => [p, {}])) });
+  cur = view.screens.length - 1;
+  playing = false;
+  $("#presets").hidden = true;
+  pickZone("");
+  drawScreen();
+  drawPlaces();
+  changed();
+};
+/** The screen being set: its parts (✕ takes one off), « + Ajouter », its time, city and hours. */
+function drawScreen() {
+  const sc = screen();
+  const parts = Object.keys(sc.parts || {});
+  $("#scrParts").innerHTML = parts.filter((p) => p !== "seconds").map((p) => `<span class="chip partchip"><span class="pick" data-pick="${p}">${PARTS[p] || p}</span>
+    <b data-unpart="${p}" title="L'enlever">✕</b></span>`).join("") || `<span class="muted">Écran vide : ajoute ce qu'il doit montrer.</span>`;
+  $("#addParts").innerHTML = Object.entries(PARTS).filter(([k]) => k !== "seconds" && !parts.includes(k))
+    .map(([k, label]) => `<button class="chip ${picked.has(k) ? "on" : ""}" data-add="${k}">${label}</button>`).join("");
+  $("#addSel").disabled = !picked.size;
+  $("#addSel").textContent = picked.size > 1 ? `+ Ajouter (${picked.size})` : "+ Ajouter";
+  $("#scrSec").value = sc.seconds || 15;
+  $("#scrPlaceRow").hidden = view.profiles.length < 2;
+  $("#scrPlace").innerHTML = view.profiles.map((p, i) => `<option value="${i}" ${i === (sc.place || 0) ? "selected" : ""}>${esc((p.label || p.place?.name || `Ville ${i + 1}`).split(",")[0])}</option>`).join("");
+  const hours = sc.from != null && sc.to != null;
+  $("#scrHoursOn").checked = hours;
+  $("#scrFrom").value = sc.from ?? 6;
+  $("#scrTo").value = sc.to ?? 10;
+  $("#scrFrom").disabled = $("#scrTo").disabled = !hours;
+  $("#scrLeft").disabled = cur === 0;
+  $("#scrRight").disabled = cur >= view.screens.length - 1;
+  $("#scrDelete").disabled = view.screens.length < 2;
+  document.querySelectorAll("[data-pick]").forEach((n) => n.classList.toggle("on", n.dataset.pick === zone));
+}
+$("#scrParts").onclick = (ev) => {
+  const off = ev.target.closest("[data-unpart]");
+  if (off) {
+    delete screen().parts[off.dataset.unpart];
+    if (zone === off.dataset.unpart) pickZone("");
+    drawScreen();
+    changed();
+    return;
+  }
+  const name = ev.target.closest("[data-pick]");
+  if (name) pickZone(name.dataset.pick === zone ? "" : name.dataset.pick);
+};
+// Adding: touch what you want (it lights up, touch again to leave it), then « + ».
+const picked = new Set();
+$("#addParts").onclick = (ev) => {
+  const chip = ev.target.closest("[data-add]");
+  if (!chip) return;
+  if (picked.has(chip.dataset.add)) picked.delete(chip.dataset.add);
+  else picked.add(chip.dataset.add);
+  drawScreen();
+};
+$("#addSel").onclick = () => {
+  if (!picked.size) return;
+  const added = [...picked];
+  screen().parts = { ...(screen().parts || {}), ...Object.fromEntries(added.map((p) => [p, p === "countdown" ? { date: "weekend" } : {}])) };
+  picked.clear();
+  drawScreen();
+  pickZone(added.at(-1));
+  changed();
+};
+$("#screen").onchange = (ev) => {
+  const sc = screen();
+  const t = ev.target;
+  if (t.id === "scrSec") sc.seconds = Math.max(1, Math.min(600, Number(t.value) || 15));
+  else if (t.id === "scrPlace") {
+    sc.place = Number(t.value);
+    drawPlaces();
+  }
+  else if (["scrHoursOn", "scrFrom", "scrTo"].includes(t.id)) {
+    if ($("#scrHoursOn").checked) {
+      sc.from = Math.max(0, Math.min(23, Number($("#scrFrom").value) || 0));
+      sc.to = Math.max(0, Math.min(24, Number($("#scrTo").value) || 0));
+    } else {
+      delete sc.from;
+      delete sc.to;
+    }
+  } else return;
+  drawScreen();
+  changed();
+};
+$("#scrLeft").onclick = $("#scrRight").onclick = (ev) => {
+  const to = cur + (ev.currentTarget.id === "scrLeft" ? -1 : 1);
+  if (to < 0 || to >= view.screens.length) return;
+  [view.screens[cur], view.screens[to]] = [view.screens[to], view.screens[cur]];
+  cur = to;
+  drawScreen();
+  changed();
+};
+let deleteArmed = 0;
+$("#scrDelete").onclick = () => {
+  if (view.screens.length < 2) return;
+  if (Date.now() - deleteArmed > 3000) {  // a second touch to delete it
+    deleteArmed = Date.now();
+    $("#scrDelete").textContent = "Supprimer ?";
+    setTimeout(() => { $("#scrDelete").textContent = "🗑 Écran"; }, 3000);
+    return;
+  }
+  view.screens.splice(cur, 1);
+  cur = Math.max(0, cur - 1);
+  pruneProfiles();
+  drawPlaces();
+  $("#scrDelete").textContent = "🗑 Écran";
+  pickZone("");
+  drawScreen();
+  changed();
+};
+// The outline, the countdown's title and date: on the part picked.
+$("#olOn").onchange = $("#ol").onchange = () => {
+  if (!zone) return;
+  part(zone).outline = $("#olOn").checked ? $("#ol").value : null;
+  changed();
+};
+$("#scrName").oninput = () => { part("name").title = $("#scrName").value.trim() || null; liveSoon(); };
+$("#cdTitle").oninput = () => { part("countdown").title = $("#cdTitle").value.trim() || null; liveSoon(); };
+$("#cdDate").onchange = $("#cdWeekend").onchange = () => {
+  const p = part("countdown");
+  p.date = $("#cdWeekend").checked ? "weekend" : $("#cdDate").value || null;
+  drawEdit();
+  changed();
+};
+// Typing: sent a moment after the last key (no need to leave the field).
+let liveTimer = null;
+function liveSoon() {
+  clearTimeout(liveTimer);
+  liveTimer = setTimeout(changed, 900);
+}
+// The contacts' birthdays (with the permission).
+$("#contacts").onclick = async () => {
+  $("#contactsmsg").textContent = "…";
+  try {
+    const n = Number(await ask("contacts"));
+    view.contacts_birthdays = true;
+    $("#contactsmsg").textContent = `${n} anniversaire${n > 1 ? "s" : ""} trouvé${n > 1 ? "s" : ""}`;
+    changed();
+  } catch (e) {
+    $("#contactsmsg").innerHTML = `<span class="error">${esc(e)}</span>`;
+  }
+};
+$("#addReminder").onclick = () => { readOptions(); drawReminders([...(view.reminders || []), { text: "", days: [] }]); };
+$("#reminders").onclick = (ev) => {
+  const del = ev.target.closest("[data-rdel]");
+  if (del) { del.closest("[data-r]").remove(); changed(); }
+};
+$("#reminders").onchange = () => changed();
+$("#reminders").oninput = (ev) => { if (ev.target.matches("[data-rtext]")) liveSoon(); };
+$("#addNote").onclick = () => { readOptions(); drawNotes([...(view.notes || []), ""]); };
+$("#addEvent").onclick = () => {
+  readOptions();
+  const d = new Date();
+  const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  drawEvents([...(view.events || []), { title: "", date: today, time: "" }]);
+};
+$("#events").onclick = (ev) => {
+  const del = ev.target.closest("[data-edel]");
+  if (del) { del.closest("[data-e]").remove(); changed(); }
+};
+$("#events").onchange = () => changed();
+$("#events").oninput = (ev) => { if (ev.target.matches("[data-etitle]")) liveSoon(); };
+$("#notes").onclick = (ev) => {
+  const del = ev.target.closest("[data-ndel]");
+  if (del) { del.closest("[data-n]").remove(); changed(); }
+};
+$("#notes").oninput = () => liveSoon();
+// A note shared to the app (Keep → Partager → Pixel Météo) while it is open.
+$("#shareConfig").onclick = () => { save(); Android.shareConfig(); };
+$("#diagnostic").onclick = async () => {
+  save();
+  $("#diagmsg").textContent = "Préparation du zip…";
+  try {
+    const res = await ask("exportDiagnostic");
+    $("#diagmsg").textContent = `${res.name} : dans Téléchargements (et prêt à envoyer).`;
+  } catch (e) {
+    $("#diagmsg").innerHTML = `<span class="error">${esc(e)}</span>`;
+  }
+};
+// Today's saints and world days, as loaded on the phone: ticked ones show (world days: 2 at most).
+let todayKey = "";
+function drawToday(today) {
+  if (!today) return;
+  const key = JSON.stringify([today, view.pick]);
+  if (key === todayKey) return;
+  todayKey = key;
+  const pick = view.pick?.date === today.date ? view.pick : null;
+  const list = (kind, items, ticked, max) => items.map((item) => `<label class="pickrow"><input type="checkbox"
+    data-today="${kind}" value="${esc(item)}" ${ticked(item) ? "checked" : ""}> ${esc(item)}</label>`).join("");
+  const parts = [];
+  if (today.calendars) {  // what the phone's calendars give today: to see that they are read
+    parts.push(`<p><b>Agenda</b> <span class="muted">(lu sur le téléphone, ${today.calendars} agenda${today.calendars > 1 ? "s" : ""} coché${today.calendars > 1 ? "s" : ""})</span></p>`
+      + (today.agenda.length ? today.agenda.map((e) => `<div class="pickrow">📅 ${esc(e)}</div>`).join("")
+        : `<p class="muted">Aucun rendez-vous aujourd'hui dans ces agendas.</p>`)
+      + (view.screens.some((sc) => sc.parts?.agenda || sc.parts?.reminders) ? ""
+        : `<p class="error">Aucun écran ne les montre : Écrans → « + » → Agenda.</p>`));
+  }
+  if (today.saints.length) {
+    parts.push(`<p><b>Saints</b> <span class="muted">(ceux cochés s'affichent)</span></p>`
+      + list("saints", today.saints, (n) => !pick?.saints?.length || pick.saints.includes(n)));
+  }
+  if (today.world_days.length) {
+    parts.push(`<p><b>Journées mondiales</b> <span class="muted">(2 au plus)</span></p>`
+      + list("world_days", today.world_days, (d) => pick?.world_days?.length ? pick.world_days.includes(d)
+        : today.world_days.indexOf(d) < 2));
+  }
+  if (parts.length) $("#todayLists").innerHTML = parts.join("");
+  limitWorldDays();
+}
+function limitWorldDays() {
+  const boxes = [...document.querySelectorAll('[data-today="world_days"]')];
+  const full = boxes.filter((b) => b.checked).length >= 2;
+  boxes.forEach((b) => { b.disabled = full && !b.checked; });
+}
+$("#todayLists").onchange = () => {
+  const ticked = (kind) => [...document.querySelectorAll(`[data-today="${kind}"]`)].filter((b) => b.checked).map((b) => b.value);
+  const d = new Date();
+  const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  view.pick = { date, saints: ticked("saints"), world_days: ticked("world_days") };
+  limitWorldDays();
+  changed();
+};
+window.noteShared = () => {
+  const saved = JSON.parse(Android.state()).config || {};
+  view.notes = saved.notes || view.notes;
+  drawNotes(view.notes || []);
+  preview(true);
+};
+// Arrows: one LED at a time.
+$("#edit").addEventListener("click", (ev) => {
+  const arrow = ev.target.closest("[data-move]");
+  if (!arrow || !zone) return;
+  ev.stopImmediatePropagation();
+  const [mx, my] = arrow.dataset.move.split(",").map(Number);
+  const p = part(zone);
+  p.dx = Math.max(-63, Math.min(63, (p.dx || 0) + mx));
+  p.dy = Math.max(-63, Math.min(63, (p.dy || 0) + my));
+  changed();
+}, true);
+// The phone's calendars: the list (with the permission), ticked ones shown.
+$("#syncCalendars").onclick = async () => {
+  $("#calmsg").textContent = "Synchronisation demandée…";
+  try {
+    const n = Number(await ask("syncCalendars"));
+    $("#calmsg").textContent = `${n} compte${n > 1 ? "s" : ""} en cours de synchronisation : je relis dans 20 s…`;
+    setTimeout(() => $("#pickCalendars").click(), 20000);
+  } catch (e) {
+    $("#calmsg").innerHTML = `<span class="error">${esc(e)}</span>`;
+  }
+};
+$("#pickCalendars").onclick = async () => {
+  $("#calmsg").textContent = "…";
+  try {
+    const list = await ask("calendars");
+    const chosen = new Set(view.agenda_device || []);
+    // Each with what the phone has of it: not synced, Google keeps its events online and the phone has none.
+    $("#calendars").innerHTML = list.map((c) => `<label class="pickrow"><input type="checkbox" data-acal="${esc(c.id)}" ${chosen.has(c.id) ? "checked" : ""}>
+      <span><span style="color:${esc(c.color)}">●</span> ${esc(c.name)} <span class="muted">${esc(c.account)}</span><br>
+      ${c.synced === false ? `<span class="error">pas synchronisé sur ce téléphone : rien à lire.</span>
+        <button class="ghost small" data-enable="${esc(c.id)}">Activer sur ce téléphone</button>`
+        : `<span class="muted">${c.next30 ? `${c.next30} rendez-vous dans les 30 jours (prochain : ${esc(c.next)})` : "aucun rendez-vous dans les 30 jours"}</span>`}</span></label>`).join("")
+      || `<span class="muted">Aucun agenda sur ce téléphone.</span>`;
+    $("#calmsg").textContent = "";
+  } catch (e) {
+    $("#calmsg").innerHTML = `<span class="error">${esc(e)}</span>`;
+  }
+};
+// A calendar not synced on the phone: switched on here (ticking it does it too), then read again.
+async function enableCalendar(id) {
+  $("#calmsg").textContent = "Activation sur le téléphone…";
+  try {
+    await ask("enableCalendar", id);
+    $("#calmsg").textContent = "Activé : synchronisation en cours, je relis dans 20 s…";
+    setTimeout(() => $("#pickCalendars").click(), 20000);
+  } catch (e) {
+    $("#calmsg").innerHTML = `<span class="error">${esc(e)}</span>`;
+  }
+}
+$("#calendars").onclick = (ev) => {
+  const button = ev.target.closest("[data-enable]");
+  if (button) { ev.preventDefault(); enableCalendar(button.dataset.enable); }
+};
+$("#calendars").onchange = (ev) => {
+  const box = ev.target.closest("[data-acal]");
+  if (box?.checked && box.closest("label")?.querySelector("[data-enable]")) enableCalendar(box.dataset.acal);
+  changed();
+};
+$("#alignRow").onclick = (ev) => {
+  const button = ev.target.closest("[data-align]");
+  if (!button) return;
+  part("name").align = button.dataset.align;
+  drawEdit();
+  changed();
+};
+$("#edit").onclick = (ev) => {
+  const button = ev.target.closest("[data-edit]");
+  if (!button || !zone) return;
+  const p = part(zone);
+  const size = p.size || usualSize(zone);
+  if (button.dataset.edit === "smaller") p.size = Math.max(SIZES[zone][0], size - 1);
+  else if (button.dataset.edit === "bigger") p.size = Math.min(SIZES[zone][1], size + 1);
+  else if (button.dataset.edit === "remove") {
+    delete screen().parts[zone];
+    pickZone("");
+    drawScreen();
+  } else {
+    const kept = { title: p.title, date: p.date, outline: p.outline };
+    screen().parts[zone] = Object.fromEntries(Object.entries(kept).filter(([, v]) => v != null));
+  }
+  drawEdit();
+  changed();
+};
+$("#grid").classList.toggle("on", grid);
+$("#grid2").classList.toggle("on", grid);
+$("#grid").onclick = $("#grid2").onclick = () => {
+  grid = !grid;
+  try { localStorage.setItem("pm-grid", grid ? "1" : "0"); } catch (_e) { /* no storage */ }
+  $("#grid").classList.toggle("on", grid);
+  $("#grid2").classList.toggle("on", grid);
+  drawEdit();
+  preview();
+};
+// Today's details left out.
+function drawShows() {
+  document.querySelectorAll("[data-detail]").forEach((box) => { box.checked = !(view.today_hide || []).includes(box.dataset.detail); });
+}
+$("#details").onchange = () => {
+  view.today_hide = [...document.querySelectorAll("[data-detail]")].filter((b) => !b.checked).map((b) => b.dataset.detail);
+  changed();
+};
+$("#resetAll").onclick = () => {  // this screen's parts back in place, at their size
+  const sc = screen();
+  sc.parts = Object.fromEntries(Object.entries(sc.parts || {}).map(([k, p]) => [k,
+    Object.fromEntries(Object.entries({ title: p.title, date: p.date, outline: p.outline }).filter(([, v]) => v != null))]));
+  drawEdit();
+  changed();
+};
+$("#zones").onclick = (ev) => {
+  const chip = ev.target.closest("[data-zone]");
+  if (chip) pickZone(chip.dataset.zone);
+};
+
+drawPlaces();
+writeOptions();
+drawShows();
+readOptions();
+drawScreen();
+showState();
+setInterval(showState, 3000);
+preview(true);
+</script>
+</body>
+</html>

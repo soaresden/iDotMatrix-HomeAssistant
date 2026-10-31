@@ -10,8 +10,13 @@ class Clock:
 
     logging = logging.getLogger(__name__)
 
-    def __init__(self) -> None:
-        self.conn: ConnectionManager = ConnectionManager()
+    def __init__(self, conn: ConnectionManager | None = None) -> None:
+        self._conn = conn
+
+    @property
+    def conn(self) -> ConnectionManager:
+        # Without an explicit one, resolved when sending: see ConnectionManager.
+        return self._conn or ConnectionManager()
 
     async def setTimeIndicator(self, enabled: bool = True) -> Union[bool, bytearray]:
         """Sets the time indicator of the clock. Does not seem to work currently (maybe in a future update?).

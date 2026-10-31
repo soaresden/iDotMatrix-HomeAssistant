@@ -34,6 +34,29 @@ def service_schema(name):
             vol.Required("path"): vol.All(cv.string, vol.Length(min=1)),
             vol.Optional("rotation_interval", default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=255)),
         })
+    if name == "convert_media":
+        fraction = vol.All(finite_number, vol.Range(min=0, max=1))
+        factor = vol.All(finite_number, vol.Range(min=0, max=3))
+        return vol.Schema({
+            vol.Required("source"): vol.All(cv.string, vol.Length(min=1)),
+            vol.Optional("output"): vol.All(cv.string, vol.Length(min=1)),
+            vol.Optional("pixel_size"): vol.All(vol.Coerce(int), vol.In((16, 32, 64))),
+            vol.Optional("fit"): vol.In(("crop", "fit", "stretch")),
+            vol.Optional("crop"): vol.All(list, vol.Length(min=4, max=4), [fraction]),
+            vol.Optional("start"): vol.All(finite_number, vol.Range(min=0)),
+            vol.Optional("end"): vol.All(finite_number, vol.Range(min=0)),
+            vol.Optional("max_seconds"): vol.All(finite_number, vol.Range(min=0.1, max=60)),
+            vol.Optional("fps"): vol.All(finite_number, vol.Range(min=1, max=30)),
+            vol.Optional("max_kb"): vol.All(vol.Coerce(int), vol.Range(min=4, max=1024)),
+            vol.Optional("brightness"): factor,
+            vol.Optional("contrast"): factor,
+            vol.Optional("saturation"): factor,
+            vol.Optional("gamma"): vol.All(finite_number, vol.Range(min=0.2, max=5)),
+            vol.Optional("black_level"): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
+            vol.Optional("dither"): cv.boolean,
+            vol.Optional("boomerang"): cv.boolean,
+            vol.Optional("display", default=False): cv.boolean,
+        })
     if name in ("show_co2", "show_power"):
         key = "co2_entity" if name == "show_co2" else "power_entity"
         del fields[vol.Optional(key)]
