@@ -8,7 +8,10 @@
   :root { --bg: #111418; --card: #1b2027; --line: #2c333d; --text: #e8eaed; --dim: #9aa3ad; --accent: #4aa3ff; --err: #ff6b5e; --ok: #4cc38a; }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.4 system-ui, sans-serif; }
-  header { padding: 14px 16px; font-size: 19px; font-weight: 600; }
+  header { padding: 14px 16px; font-size: 19px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  header .grow { flex: 1; }
+  #power { font-size: 15px; padding: 6px 12px; }
+  #power.off { background: var(--accent); color: #fff; border-color: var(--accent); }
   section { background: var(--card); margin: 0 12px 12px; border-radius: 12px; padding: 12px 14px; }
   h2 { font-size: 15px; margin: 0 0 8px; color: var(--dim); font-weight: 600; }
   .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
@@ -88,7 +91,8 @@
 </style>
 </head>
 <body data-tab="screens">
-<header>☀ Pixel Météo</header>
+<header>☀ Pixel Météo<span class="grow"></span>
+  <button class="ghost" id="power" hidden title="Éteint l'écran du cadre (rien n'y est envoyé tant qu'il est éteint), ou le rallume">⏻ Éteindre</button></header>
 
 
 <section id="preview">
@@ -275,6 +279,7 @@
   <h2>Sur le cadre</h2>
   <div class="row"><label><input type="checkbox" id="follow" checked> Suivre l'écran du téléphone</label>
     <span class="muted">(le cadre montre l'écran que tu règles ; décoché ou appli quittée : les écrans défilent)</span></div>
+  <div class="row"><span class="grow" id="screenState"></span><button class="ghost" id="power2">⏻</button></div>
   <div class="row"><span class="grow" id="status"></span><button class="ghost" id="stop" title="Rend le cadre à l'appli iDotMatrix jusqu'au prochain changement">Arrêter</button></div>
   <p class="muted" id="batteryRow">Pour que l'heure avance téléphone en veille :
     <button class="ghost small" id="battery">Ne pas limiter la batterie</button></p>
@@ -685,6 +690,13 @@ function showState() {
     : state.running ? `▶ Sur le cadre · ${state.status || ""}` : "■ Arrêté : le prochain changement le remet sur le cadre.";
   $("#status").className = `grow ${/Erreur|injoignable|En attente/.test(state.status) && state.running ? "error" : "muted"}`;
   $("#stop").hidden = !state.running;
+  // The frame's screen: off (nothing sent) or on.
+  $("#power").hidden = $("#power2").parentElement.hidden = !state.device;
+  $("#power").textContent = state.screen_off ? "⏻ Allumer" : "⏻ Éteindre";
+  $("#power").classList.toggle("off", !!state.screen_off);
+  $("#power2").textContent = state.screen_off ? "⏻ Allumer l'écran" : "⏻ Éteindre l'écran";
+  $("#screenState").textContent = state.screen_off ? "Écran du cadre éteint : rien n'y est envoyé." : "Écran du cadre allumé.";
+  $("#screenState").className = `grow ${state.screen_off ? "" : "muted"}`;
   $("#batteryRow").hidden = state.battery_free;
   if (!state.device && !frameOpened) {  // first: choose the frame
     frameOpened = true;
@@ -787,6 +799,15 @@ $("#tabs").onclick = (ev) => {
   document.body.dataset.tab = tab.dataset.tab;
   document.querySelectorAll("#tabs [data-tab]").forEach((b) => b.classList.toggle("on", b === tab));
   window.scrollTo({ top: 0 });
+};
+$("#power").onclick = $("#power2").onclick = async () => {
+  $("#err").textContent = "";
+  try {
+    await ask("screen", !!state.screen_off);
+  } catch (e) {
+    $("#err").textContent = e;
+  }
+  showState();
 };
 $("#stop").onclick = () => { Android.stop(); setTimeout(showState, 500); };
 $("#battery").onclick = () => Android.batteryFree();

@@ -231,6 +231,9 @@ class Frame(private val context: Context, val address: String) {
 
     suspend fun brightness(percent: Int) = command(byteArrayOf(5, 0, 4, 0x80.toByte(), percent.coerceIn(5, 100).toByte()))
 
+    /** The screen lit or dark (the display keeps what it shows). */
+    suspend fun screen(on: Boolean) = command(byteArrayOf(5, 0, 7, 1, if (on) 1 else 0))
+
     /** The 4 KB packets of a GIF shown on its own (index 0x0d), as gif.py's _createPayloads. */
     private fun packets(gif: ByteArray): List<ByteArray> {
         val crc = CRC32().apply { update(gif) }.value

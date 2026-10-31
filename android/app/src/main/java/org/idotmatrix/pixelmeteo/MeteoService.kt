@@ -41,6 +41,8 @@ class MeteoService : Service() {
     companion object {
         private const val CHANNEL = "meteo"
         private const val NOTIFICATION = 1
+        // The notification's button: the frame's screen off, or on again.
+        const val ACTION_SCREEN = "org.idotmatrix.pixelmeteo.SCREEN"
 
         fun start(context: Context) {
             val intent = Intent(context, MeteoService::class.java)
@@ -86,7 +88,11 @@ class MeteoService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val notification = notification("Démarrage…")
+        if (intent?.action == ACTION_SCREEN) {
+            Store.setScreenOff(this, !Store.screenOff(this))
+            poke()
+        }
+        val notification = notification(Store.status(this).ifEmpty { "Démarrage…" })
         if (Build.VERSION.SDK_INT >= 29) {
             startForeground(NOTIFICATION, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
         } else {
@@ -120,11 +126,16 @@ class MeteoService : Service() {
             PendingIntent.FLAG_IMMUTABLE)
         val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL)
         else @Suppress("DEPRECATION") Notification.Builder(this)
+        val intent = Intent(this, MeteoService::class.java).setAction(ACTION_SCREEN)
+        val screen = if (Build.VERSION.SDK_INT >= 26) PendingIntent.getForegroundService(this, 1, intent, PendingIntent.FLAG_IMMUTABLE)
+        else PendingIntent.getService(this, 1, intent, PendingIntent.FLAG_IMMUTABLE)
         return builder.setContentTitle("Pixel Météo")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_menu_day)
             .setContentIntent(open)
             .setOngoing(true)
+            .addAction(android.R.drawable.ic_lock_power_off,
+                if (Store.screenOff(this)) "Allumer l'écran" else "Éteindre l'écran", screen)
             .build()
     }
 
@@ -142,12 +153,34 @@ class MeteoService : Service() {
         val time = SimpleDateFormat("HH:mm", Locale.FRANCE)
         var missed = false  // the frame was not reached: tried again sooner than the next minute
         var sent = ""        // what the last minute sent was made of: the same again in that minute is not resent
+        var lit: Boolean? = null  // what the frame's screen was last told (unknown at first)
         while (scope.isActive) {
             val device = Store.device(this)
             val cfg = Store.config(this)
             if (device == null || cfg == null) {
                 say("Choisis un cadre et une ville dans l'appli")
                 delay(30_000)
+                continue
+            }
+            if (Store.screenOff(this)) {  // switched off: told once, then nothing sent until switched on
+                if (lit != false) {
+                    try {
+                        val f = frame?.takeIf { it.address == device.address } ?: Frame(this, device.address).also {
+                            frame?.close()
+                            frame = it
+                        }
+                        f.screen(false)
+                        lit = false
+                        sent = ""
+                        say("${device.name} : écran éteint")
+                    } catch (e: Exception) {
+                        frame?.close()
+                        say("En attente du cadre pour l'éteindre (${e.message?.lineSequence()?.lastOrNull() ?: e.javaClass.simpleName})")
+                        withTimeoutOrNull(15_000) { changes.receive() }
+                        continue
+                    }
+                }
+                changes.receive()
                 continue
             }
             val refresh = Store.refreshSeconds(this)
@@ -171,6 +204,10 @@ class MeteoService : Service() {
                 val f = frame?.takeIf { it.address == device.address } ?: Frame(this, device.address).also {
                     frame?.close()
                     frame = it
+                }
+                if (lit != true) {  // switched on again (or unknown): lit before the minute
+                    f.screen(true)
+                    lit = true
                 }
                 val wanted = py.callAttr("brightness", cfg.toString()).toInt()
                 if (wanted >= 0 && wanted != brightness) {
@@ -289,6 +326,13 @@ object Store {
 
     fun follow(context: Context, screen: Int) {
         prefs(context).edit().putInt("followed", screen).apply()
+    }
+
+    /** The frame's screen switched off from the app (⏻): nothing is sent until it is switched on. */
+    fun screenOff(context: Context) = prefs(context).getBoolean("screen_off", false)
+
+    fun setScreenOff(context: Context, off: Boolean) {
+        prefs(context).edit().putBoolean("screen_off", off).apply()
     }
 
     /** « Arrêter » pressed: the frame stays free (no start at boot) until the next change. */

@@ -163,6 +163,7 @@ class MainActivity : Activity() {
                 .put("config", Store.config(this@MainActivity))
                 .put("refresh", Store.refreshSeconds(this@MainActivity))
                 .put("running", Store.running(this@MainActivity))
+                .put("screen_off", Store.screenOff(this@MainActivity))
                 .put("status", Store.status(this@MainActivity))
                 .put("battery_free", power.isIgnoringBatteryOptimizations(packageName))
                 .toString()
@@ -269,6 +270,22 @@ class MainActivity : Activity() {
                 Store.follow(this@MainActivity, screen)
                 MeteoService.poke()
             }
+        }
+
+        /** The frame's screen on or off: by the service when it runs, else here at once. */
+        @JavascriptInterface
+        fun screen(id: Int, on: Boolean) = reply(id) {
+            Store.setScreenOff(this@MainActivity, !on)
+            if (Store.running(this@MainActivity)) {
+                MeteoService.poke()
+            } else {
+                val device = Store.device(this@MainActivity) ?: throw IllegalStateException("Choisis d'abord le cadre")
+                withContext(Dispatchers.IO) {
+                    val frame = Frame(this@MainActivity, device.address)
+                    try { frame.screen(on) } finally { frame.close() }
+                }
+            }
+            "true"
         }
 
         @JavascriptInterface
