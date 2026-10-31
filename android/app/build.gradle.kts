@@ -12,8 +12,8 @@ android {
         applicationId = "org.idotmatrix.pixelmeteo"
         minSdk = 24
         targetSdk = 35
-        versionCode = 17
-        versionName = "0.16"
+        versionCode = 18
+        versionName = "0.17"
         // Phones (arm64) and the emulator (x86_64): Pillow is built for these.
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }

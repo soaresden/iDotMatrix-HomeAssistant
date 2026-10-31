@@ -104,11 +104,15 @@
       <button class="chip" data-zone="strip">En bas</button>
 </div>
     <div class="row" id="edit" hidden>
+      <button class="ghost" data-edit="box" id="boxBtn" title="Sa zone à elle : glisse-la, tire son coin en bas à droite pour sa taille. Ce qui est dedans s'adapte">▣ Cadre</button>
       <button class="ghost" data-edit="smaller" title="Plus petit">A↓</button><button class="ghost" data-edit="bigger" title="Plus grand">A↑</button>
       <button class="ghost" data-move="-1,0" title="1 LED à gauche">←</button><button class="ghost" data-move="1,0" title="1 LED à droite">→</button>
       <button class="ghost" data-move="0,-1" title="1 LED plus haut">↑</button><button class="ghost" data-move="0,1" title="1 LED plus bas">↓</button>
+      <button class="ghost" data-spot="center" title="Au centre">⊕</button><button class="ghost" data-spot="tl" title="En haut à gauche">↖</button><button class="ghost" data-spot="tr" title="En haut à droite">↗</button><button class="ghost" data-spot="bl" title="En bas à gauche">↙</button><button class="ghost" data-spot="br" title="En bas à droite">↘</button>
       <button class="ghost" data-edit="remove" title="L'enlever de cet écran">Retirer</button><button class="ghost" data-edit="reset" title="Remettre à sa place">↺</button><button class="ghost" id="grid2" title="Grille (aimantage)">▦</button>
+      <label class="muted" title="Cette partie dans une couleur à toi"><input type="checkbox" id="colOn"> couleur</label><input type="color" id="col" value="#ffffff">
       <label class="muted" title="Une ligne de cette couleur autour (du noir se voit avec : une LED noire est éteinte)"><input type="checkbox" id="olOn"> contour</label><input type="color" id="ol" value="#ffffff">
+      <select id="lines"><option value="multi">sur plusieurs lignes</option><option value="one">sur 1 ligne qui défile</option></select>
       <span id="alignRow"><button class="ghost" data-align="left" title="À gauche">⇤</button><button class="ghost" data-align="center" title="Au centre">↔</button><button class="ghost" data-align="right" title="À droite">⇥</button></span>
       <span class="muted">glisse-le sur l'aperçu<span id="snapHint"> (aimanté à la grille)</span></span></div>
     <div class="row" id="nameRow" hidden><input class="grow" id="scrName" maxlength="40"></div>
@@ -485,6 +489,9 @@ const WEATHER = ["clock", "seconds", "date", "name", "today", "strip"];  // the 
 const PRESETS = [["empty", "Vide"], ["weather", "Météo"], ...Object.keys(PARTS).filter((k) => !WEATHER.includes(k)).map((k) => [k, PARTS[k]])];
 const presetParts = (key) => key === "empty" ? [] : key === "weather" ? WEATHER.filter((p) => p !== "seconds") : ["clock", key];
 // Each part's sizes, as the engine has them (meteo.py SIZES), and its usual one.
+// The parts whose text goes on one line (scrolling) or several (meteo.py _page_line).
+const LINES = ["saint", "world_days", "notes", "birthdays", "countdown", "thought", "proverb", "fact", "motivation",
+  "humor", "wellbeing", "word"];
 const SIZES = { clock: [1, 2], seconds: [1, 3], date: [1, 2], name: [1, 2], today: [1, 3], strip: [1, 2], days: [1, 2], sun: [1, 2] };
 Object.keys(PARTS).forEach((k) => { SIZES[k] ||= [1, 3]; });
 const usualSize = (name) => ({ clock: 2, seconds: 1, date: 1, name: 1, today: 2,
@@ -533,12 +540,29 @@ function outline() {
   const canvas = $("#led");
   const ctx = canvas.getContext("2d");
   if (grid && lastPixels) drawGrid(ctx, canvas.width);
-  const box = boxes[zone];
-  if (!box || !lastPixels) return;
+  if (!lastPixels) return;
   const k = canvas.width / 64;
-  ctx.strokeStyle = "#4aa3ff";
-  ctx.lineWidth = 3;
+  const parts = screen().parts || {};
+  ctx.setLineDash([4, 3]);  // every box, dimly
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(255,200,80,.45)";
+  for (const [name, p] of Object.entries(parts)) {
+    const b = p.box && name !== zone && boxes[name];
+    if (b) ctx.strokeRect(b[0] * k + 0.5, b[1] * k + 0.5, (b[2] - b[0]) * k - 1, (b[3] - b[1]) * k - 1);
+  }
+  ctx.setLineDash([]);
+  const box = boxes[zone];
+  if (!box) return;
+  const boxed = !!parts[zone]?.box;
+  ctx.strokeStyle = boxed ? "#ffc850" : "#4aa3ff";
+  ctx.lineWidth = boxed ? 2 : 3;
+  if (boxed) ctx.setLineDash([6, 4]);
   ctx.strokeRect(box[0] * k - 1, box[1] * k - 1, (box[2] - box[0]) * k + 2, (box[3] - box[1]) * k + 2);
+  ctx.setLineDash([]);
+  if (boxed) {  // the corner to pull for its size
+    ctx.fillStyle = "#ffc850";
+    ctx.fillRect(box[2] * k - 9, box[3] * k - 9, 12, 12);
+  }
 }
 
 const part = (name) => ((screen().parts ||= {})[name] ||= {});
@@ -557,6 +581,11 @@ function drawEdit() {
     $("#scrName").value = part("name").title || "";
   }
   if ($("#edit").hidden) return;
+  $("#boxBtn").classList.toggle("on", !!p.box);
+  $("#colOn").checked = !!p.color;
+  $("#col").value = p.color || "#ffffff";
+  $("#lines").hidden = !LINES.includes(zone);
+  $("#lines").value = p.lines === "one" ? "one" : "multi";
   $("#olOn").checked = !!p.outline;
   $("#ol").value = p.outline || "#ffffff";
   $("#cdTitle").value = p.title || "";
@@ -565,9 +594,9 @@ function drawEdit() {
   $("#cdDate").disabled = p.date === "weekend";
   const [low, high] = SIZES[zone];
   const size = p.size || usualSize(zone);
-  document.querySelector('[data-edit="smaller"]').disabled = size <= low;
-  document.querySelector('[data-edit="bigger"]').disabled = size >= high;
-  $("#alignRow").hidden = zone !== "name";
+  // In its box, A↓ A↑ make the box smaller or bigger (what is in it follows).
+  document.querySelector('[data-edit="smaller"]').disabled = p.box ? p.box[2] <= 4 && p.box[3] <= 4 : size <= low;
+  document.querySelector('[data-edit="bigger"]').disabled = p.box ? p.box[2] >= 64 && p.box[3] >= 64 : size >= high;
   document.querySelectorAll("[data-align]").forEach((b) => b.classList.toggle("on", (p.align || "center") === b.dataset.align));
   $("#snapHint").hidden = !grid;
 }
@@ -780,9 +809,13 @@ const ledPoint = (ev) => {
 };
 $("#led").onpointerdown = (ev) => {
   const [x, y] = ledPoint(ev);
-  const hit = partAt(x, y);
+  // The picked box's corner (within 4 LEDs: a finger) pulls its size, wherever the part under it.
+  const corner = screen().parts?.[zone]?.box && boxes[zone];
+  const resize = !!corner && Math.abs(x - corner[2]) <= 4 && Math.abs(y - corner[3]) <= 4;
+  const hit = resize ? zone : partAt(x, y);
+  const own = screen().parts?.[hit]?.box;
   drag = { x, y, part: hit, moved: false, dx: screen().parts?.[hit]?.dx || 0, dy: screen().parts?.[hit]?.dy || 0,
-    box: boxes[hit] ? [...boxes[hit]] : null };
+    box: boxes[hit] ? [...boxes[hit]] : null, own: own ? [...own] : null, resize };
   $("#led").setPointerCapture(ev.pointerId);
 };
 $("#led").onpointermove = (ev) => {
@@ -794,9 +827,18 @@ $("#led").onpointermove = (ev) => {
   if (!drag.moved && drag.part !== zone) pickZone(drag.part);  // grabbed and dragged in one go
   drag.moved = true;
   const p = part(zone);
-  const [sx, sy] = grid && drag.box ? snap(drag.box, dx, dy) : [dx, dy];
-  p.dx = Math.max(-63, Math.min(63, Math.round(drag.dx + sx)));  // whole LEDs (the grid's middle is a half)
-  p.dy = Math.max(-63, Math.min(63, Math.round(drag.dy + sy)));
+  const o = drag.own;
+  if (o && drag.resize) {  // its corner: the box's size, 3 LEDs at least, inside the frame
+    const [ex, ey] = grid ? snap([o[0] + o[2], o[1] + o[3], o[0] + o[2], o[1] + o[3]], dx, dy) : [dx, dy];
+    p.box = [o[0], o[1], Math.max(3, Math.min(64 - o[0], o[2] + Math.round(ex))), Math.max(3, Math.min(64 - o[1], o[3] + Math.round(ey)))];
+  } else if (o) {  // the box moves, inside the frame
+    const [sx, sy] = grid ? snap([o[0], o[1], o[0] + o[2], o[1] + o[3]], dx, dy) : [dx, dy];
+    p.box = [Math.max(0, Math.min(64 - o[2], o[0] + Math.round(sx))), Math.max(0, Math.min(64 - o[3], o[1] + Math.round(sy))), o[2], o[3]];
+  } else {
+    const [sx, sy] = grid && drag.box ? snap(drag.box, dx, dy) : [dx, dy];
+    p.dx = Math.max(-63, Math.min(63, Math.round(drag.dx + sx)));  // whole LEDs (the grid's middle is a half)
+    p.dy = Math.max(-63, Math.min(63, Math.round(drag.dy + sy)));
+  }
   if (!previewing) previewSoon();
 };
 // A tap picks (a click, which Android sends reliably); a drag that moved saves on release.
@@ -982,6 +1024,20 @@ $("#olOn").onchange = $("#ol").onchange = () => {
   part(zone).outline = $("#olOn").checked ? $("#ol").value : null;
   changed();
 };
+$("#colOn").onchange = $("#col").onchange = () => {
+  if (!zone) return;
+  const p = part(zone);
+  if ($("#colOn").checked) p.color = $("#col").value;
+  else delete p.color;
+  changed();
+};
+$("#lines").onchange = () => {
+  if (!zone) return;
+  const p = part(zone);
+  if ($("#lines").value === "one") p.lines = "one";
+  else delete p.lines;
+  changed();
+};
 $("#scrName").oninput = () => { part("name").title = $("#scrName").value.trim() || null; liveSoon(); };
 $("#cdTitle").oninput = () => { part("countdown").title = $("#cdTitle").value.trim() || null; liveSoon(); };
 $("#cdDate").onchange = $("#cdWeekend").onchange = () => {
@@ -1094,6 +1150,50 @@ window.noteShared = () => {
   drawNotes(view.notes || []);
   preview(true);
 };
+// The box: on (from where the part is now) or off; centre, corners, arrows, A↓ A↑ on it.
+$("#edit").addEventListener("click", (ev) => {
+  if (!zone) return;
+  const p = part(zone);
+  const own = p.box;
+  const box = boxes[zone];
+  const done = () => { ev.stopImmediatePropagation(); drawEdit(); changed(); };
+  const spot = ev.target.closest("[data-spot]");
+  if (spot && (own || box)) {
+    const [w, h] = own ? [own[2], own[3]] : [box[2] - box[0], box[3] - box[1]];
+    const at = { center: [(64 - w) / 2, (64 - h) / 2], tl: [0, 0], tr: [64 - w, 0], bl: [0, 64 - h], br: [64 - w, 64 - h] }[spot.dataset.spot];
+    if (own) p.box = [Math.round(at[0]), Math.round(at[1]), w, h];
+    else {  // from where it is now and where it would be unmoved
+      p.dx = Math.max(-63, Math.min(63, Math.round(at[0] - (box[0] - (p.dx || 0)))));
+      p.dy = Math.max(-63, Math.min(63, Math.round(at[1] - (box[1] - (p.dy || 0)))));
+    }
+    return done();
+  }
+  const arrow = ev.target.closest("[data-move]");
+  if (own && arrow) {
+    const [mx, my] = arrow.dataset.move.split(",").map(Number);
+    p.box = [Math.max(0, Math.min(64 - own[2], own[0] + mx)), Math.max(0, Math.min(64 - own[3], own[1] + my)), own[2], own[3]];
+    return done();
+  }
+  const sizer = ev.target.closest('[data-edit="smaller"], [data-edit="bigger"]');
+  if (own && sizer) {  // 2 LEDs each side, around its middle, inside the frame
+    const step = sizer.dataset.edit === "bigger" ? 2 : -2;
+    const w = Math.max(4, Math.min(64, own[2] + 2 * step));
+    const h = Math.max(4, Math.min(64, own[3] + 2 * step));
+    p.box = [Math.max(0, Math.min(64 - w, Math.round(own[0] + (own[2] - w) / 2))), Math.max(0, Math.min(64 - h, Math.round(own[1] + (own[3] - h) / 2))), w, h];
+    return done();
+  }
+  if (ev.target.closest('[data-edit="box"]')) {
+    if (own) delete p.box;
+    else {  // where it is now, a little room around
+      const b = box || [0, 16, 64, 32];
+      const [x, y] = [Math.max(0, b[0] - 1), Math.max(0, b[1] - 1)];
+      p.box = [x, y, Math.max(4, Math.min(64 - x, b[2] - b[0] + 2)), Math.max(4, Math.min(64 - y, b[3] - b[1] + 2))];
+      delete p.dx;
+      delete p.dy;
+    }
+    return done();
+  }
+}, true);
 // Arrows: one LED at a time.
 $("#edit").addEventListener("click", (ev) => {
   const arrow = ev.target.closest("[data-move]");
@@ -1156,7 +1256,14 @@ $("#calendars").onchange = (ev) => {
 $("#alignRow").onclick = (ev) => {
   const button = ev.target.closest("[data-align]");
   if (!button) return;
-  part("name").align = button.dataset.align;
+  if (!zone) return;
+  const p = part(zone);
+  if (zone !== "name" && !p.box && boxes[zone]) {
+    p.box = [0, boxes[zone][1], 64, Math.max(3, boxes[zone][3] - boxes[zone][1])];
+    delete p.dx;
+    delete p.dy;
+  }
+  p.align = button.dataset.align;
   drawEdit();
   changed();
 };
@@ -1172,7 +1279,7 @@ $("#edit").onclick = (ev) => {
     pickZone("");
     drawScreen();
   } else {
-    const kept = { title: p.title, date: p.date, outline: p.outline };
+    const kept = { title: p.title, date: p.date, outline: p.outline, color: p.color, lines: p.lines };
     screen().parts[zone] = Object.fromEntries(Object.entries(kept).filter(([, v]) => v != null));
   }
   drawEdit();
@@ -1199,7 +1306,7 @@ $("#details").onchange = () => {
 $("#resetAll").onclick = () => {  // this screen's parts back in place, at their size
   const sc = screen();
   sc.parts = Object.fromEntries(Object.entries(sc.parts || {}).map(([k, p]) => [k,
-    Object.fromEntries(Object.entries({ title: p.title, date: p.date, outline: p.outline }).filter(([, v]) => v != null))]));
+    Object.fromEntries(Object.entries({ title: p.title, date: p.date, outline: p.outline, color: p.color, lines: p.lines }).filter(([, v]) => v != null))]));
   drawEdit();
   changed();
 };
