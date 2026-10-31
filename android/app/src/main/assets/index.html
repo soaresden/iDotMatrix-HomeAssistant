@@ -92,7 +92,7 @@
 </head>
 <body data-tab="screens">
 <header>☀ Pixel Météo<span class="grow"></span>
-  <button class="ghost" id="power" hidden title="Éteint l'écran du cadre (rien n'y est envoyé tant qu'il est éteint), ou le rallume">⏻ Éteindre</button></header>
+  <button class="ghost" id="power" hidden title="Éteint l'écran du cadre (rien n'y est envoyé tant qu'il est éteint), ou le rallume">Éteindre</button></header>
 
 
 <section id="preview">
@@ -279,7 +279,7 @@
   <h2>Sur le cadre</h2>
   <div class="row"><label><input type="checkbox" id="follow" checked> Suivre l'écran du téléphone</label>
     <span class="muted">(le cadre montre l'écran que tu règles ; décoché ou appli quittée : les écrans défilent)</span></div>
-  <div class="row"><span class="grow" id="screenState"></span><button class="ghost" id="power2">⏻</button></div>
+  <div class="row"><span class="grow" id="screenState"></span><button class="ghost" id="power2"></button></div>
   <div class="row"><span class="grow" id="status"></span><button class="ghost" id="stop" title="Rend le cadre à l'appli iDotMatrix jusqu'au prochain changement">Arrêter</button></div>
   <p class="muted" id="batteryRow">Pour que l'heure avance téléphone en veille :
     <button class="ghost small" id="battery">Ne pas limiter la batterie</button></p>
@@ -692,9 +692,11 @@ function showState() {
   $("#stop").hidden = !state.running;
   // The frame's screen: off (nothing sent) or on.
   $("#power").hidden = $("#power2").parentElement.hidden = !state.device;
-  $("#power").textContent = state.screen_off ? "⏻ Allumer" : "⏻ Éteindre";
+  // A drawn power sign: Android's fonts have no ⏻.
+  const sign = `<svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:-3px" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg>`;
+  $("#power").innerHTML = `${sign} ${state.screen_off ? "Allumer" : "Éteindre"}`;
   $("#power").classList.toggle("off", !!state.screen_off);
-  $("#power2").textContent = state.screen_off ? "⏻ Allumer l'écran" : "⏻ Éteindre l'écran";
+  $("#power2").innerHTML = `${sign} ${state.screen_off ? "Allumer l'écran" : "Éteindre l'écran"}`;
   $("#screenState").textContent = state.screen_off ? "Écran du cadre éteint : rien n'y est envoyé." : "Écran du cadre allumé.";
   $("#screenState").className = `grow ${state.screen_off ? "" : "muted"}`;
   $("#batteryRow").hidden = state.battery_free;
