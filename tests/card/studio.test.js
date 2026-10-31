@@ -1184,6 +1184,50 @@ test("Météo: picking a part of the preview keeps only its settings, and resize
   assert.ok($("#wgridbtn").classList.contains("on"));
 });
 
+test("Météo: a part in its own box, its colour, aligned, its text on one line", async () => {
+  const { $, calls } = await studio({
+    "idotmatrix/studio/routines": { routines: [], status: {} },
+    "idotmatrix/studio/weather_sources": WEATHER_SOURCES,
+    "idotmatrix/studio/weather_preview": { ...PREVIEW, boxes: { clock: [6, 0, 58, 14], name: [24, 15, 40, 20], today: [0, 21, 63, 37], strip: [0, 38, 63, 63] } },
+  });
+  $('nav button[data-tab="weather"]').click();
+  await wait(50);
+  const last = () => calls.findLast((c) => c.type === "idotmatrix/studio/weather_preview").weather;
+  $('#wzones [data-wzone="today"]').click();
+  await wait();
+  $('#wedit [data-wedit="box"]').click();  // its box: where it is, a little room around
+  await wait(50);
+  assert.deepEqual(last().screens[0].parts.today.box, [0, 20, 64, 18]);
+  assert.ok($("#wboxbtn").classList.contains("on"));
+  $('#wedit [data-wedit="smaller"]').click();  // the box shrinks around its middle
+  await wait(50);
+  assert.deepEqual(last().screens[0].parts.today.box, [2, 22, 60, 14]);
+  $('#wedit [data-wplace="tl"]').click();
+  await wait(50);
+  assert.deepEqual(last().screens[0].parts.today.box, [0, 0, 60, 14]);
+  $('#wedit [data-wmove="1,0"]').click();
+  await wait(50);
+  assert.deepEqual(last().screens[0].parts.today.box, [1, 0, 60, 14]);
+  $("#wcolOn").checked = true;
+  $("#wcol").value = "#ff0000";
+  change($("#wcolOn"));
+  await wait(50);
+  assert.equal(last().screens[0].parts.today.color, "#ff0000");
+  $('#walign [data-walign="right"]').click();
+  await wait(50);
+  assert.equal(last().screens[0].parts.today.align, "right");
+  assert.equal($("#wlines").style.display, "none");  // the weather has no text to put on one line
+  $('#wedit [data-wedit="reset"]').click();  // back in place, in its colour still
+  await wait(50);
+  assert.deepEqual(last().screens[0].parts.today, { color: "#ff0000" });
+  // Aligning a part without a box: its row across the frame.
+  $('#wzones [data-wzone="clock"]').click();
+  await wait();
+  $('#walign [data-walign="left"]').click();
+  await wait(50);
+  assert.deepEqual(last().screens[0].parts.clock, { box: [0, 0, 64, 14], align: "left" });
+});
+
 test("Météo: screens numbered above the preview, « + » adds one empty or ready-made, each filled and timed", async () => {
   const { $, calls, panel } = await studio({
     "idotmatrix/studio/routines": { routines: [], status: {} },

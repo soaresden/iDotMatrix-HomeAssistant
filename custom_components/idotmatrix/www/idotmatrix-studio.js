@@ -69,6 +69,9 @@ const WEATHER_PRESETS = [["empty", "Vide"], ["weather", "Météo"],
 const WEATHER_SIZES = { clock: [1, 2], seconds: [1, 3], date: [1, 2], name: [1, 2], today: [1, 3], strip: [1, 2], days: [1, 2], sun: [1, 2] };
 Object.keys(WEATHER_PARTS).forEach((k) => { WEATHER_SIZES[k] ||= [1, 3]; });
 const WEATHER_DAYS = ["L", "M", "M", "J", "V", "S", "D"];
+// The parts whose text goes on one line (scrolling) or several (meteo.py _page_line).
+const WEATHER_LINES = ["saint", "world_days", "notes", "birthdays", "countdown", "thought", "proverb", "fact", "motivation",
+  "humor", "wellbeing", "word"];
 const PAGE_NAMES = { special: "jour spécial", agenda: "agenda", saint: "saint du jour", world_days: "journée mondiale",
   thought: "citation", proverb: "dicton", fact: "savoir inutile", motivation: "phrase motivante", humor: "pour rire",
   wellbeing: "bien-être" };
@@ -387,6 +390,12 @@ const STYLE = `
   @media (max-width: 600px) { .wside { width: 100%; } .wled { width: 160px; } }
   .wform { flex: 1 1 280px; min-width: 0; }
   .wform .row b { min-width: 64px; }
+  .wgroup { border: 1px solid var(--divider-color, #444); border-radius: 10px; margin: 0 0 8px; padding: 0 10px; }
+  .wgroup > summary { cursor: pointer; font-weight: 600; padding: 8px 0; list-style: none; display: flex; gap: 6px; align-items: center; }
+  .wgroup > summary::-webkit-details-marker { display: none; }
+  .wgroup > summary::after { content: "▸"; margin-left: auto; opacity: .6; }
+  .wgroup[open] > summary::after { content: "▾"; }
+  .wgroup[open] { padding-bottom: 6px; }
   .wform select { max-width: 100%; }
   .wprof { border: 1px solid var(--divider-color); border-radius: 10px; padding: 0 10px; margin: 8px 0; }
   .wform input[type=number] { width: 52px; }
@@ -5592,13 +5601,16 @@ class IDotMatrixStudio extends HTMLElement {
           <div class="chips" id="wzones">${[["", "Tout"], ["clock", "Heure"], ["date", "Date"], ["name", "Ville"], ["today", "Aujourd'hui"], ["strip", "En bas"], ["pages", "Pages"]]
             .map(([z, label]) => `<button class="chip-btn ${z === (this._wzone || "") ? "on" : ""}" data-wzone="${z}">${label}</button>`).join("")}</div>
           <div class="row" id="wedit" style="display:none">
+            <button class="act ghost small" data-wedit="box" id="wboxbtn" title="Sa zone à elle : glisse-la, tire son coin en bas à droite pour sa taille. Ce qui est dedans s'adapte (toute petite, la météo n'est plus que la température)">▣ Cadre</button>
             <button class="act ghost small" data-wedit="smaller" title="Plus petit">A↓</button><button class="act ghost small" data-wedit="bigger" title="Plus grand">A↑</button>
             ${[["-1,0", "←", "1 LED à gauche"], ["1,0", "→", "1 LED à droite"], ["0,-1", "↑", "1 LED plus haut"], ["0,1", "↓", "1 LED plus bas"]]
               .map(([m, icon, title]) => `<button class="act ghost small" data-wmove="${m}" title="${title}">${icon}</button>`).join("")}
             ${[["center", "⊕", "Au centre"], ["tl", "↖", "En haut à gauche"], ["tr", "↗", "En haut à droite"], ["bl", "↙", "En bas à gauche"], ["br", "↘", "En bas à droite"]]
               .map(([k, icon, title]) => `<button class="act ghost small" data-wplace="${k}" title="${title}">${icon}</button>`).join("")}
             <button class="act ghost small" data-wedit="remove" title="L'enlever de cet écran">Retirer</button><button class="act ghost small" data-wedit="reset" title="Remettre à sa place">↺</button>
+            <label class="small" title="Cette partie dans une couleur à toi (une image prend ses nuances)"><input type="checkbox" id="wcolOn"> couleur</label><input type="color" id="wcol" value="#ffffff">
             <label class="small" title="Une ligne de cette couleur autour (du noir se voit avec : une LED noire est éteinte)"><input type="checkbox" id="wolOn"> contour</label><input type="color" id="wol" value="#ffffff">
+            <select id="wlines" title="Son texte"><option value="multi">sur plusieurs lignes</option><option value="one">sur 1 ligne qui défile</option></select>
             <span id="walign">${[["left", "⇤", "À gauche"], ["center", "↔", "Au centre"], ["right", "⇥", "À droite"]]
               .map(([a, icon, title]) => `<button class="act ghost small" data-walign="${a}" title="${title}">${icon}</button>`).join("")}</span>
             <span class="muted small">glisse-la sur l'aperçu</span></div>
@@ -5623,9 +5635,11 @@ class IDotMatrixStudio extends HTMLElement {
           <p class="muted small">Un numéro au-dessus de l'aperçu règle cet écran, « + » en ajoute un, ▶ les fait défiler.</p>
         </div>
         <div class="wform">
-          <div class="row"><b>Nom</b><input type="text" id="wname" class="grow" value="${esc(view.name)}"></div>
-          <div id="wprofiles" data-zone="name"></div>
           <p class="error" id="werr"></p>
+          <details class="wgroup" data-group="view"><summary>📝 La vue et la ville</summary>
+          <div class="row"><b>Nom</b><input type="text" id="wname" class="grow" value="${esc(view.name)}"></div>
+          <div id="wprofiles" data-zone="name"></div></details>
+          <details class="wgroup" data-group="clock"><summary>🕒 L'heure et la date</summary>
           <div class="row" data-zone="clock"><b>Style</b>
             <label><input type="radio" name="wstyle" value="digits"> chiffres</label>
             <label><input type="radio" name="wstyle" value="flip"> cartes qui basculent (HTC)</label></div>
@@ -5644,7 +5658,8 @@ class IDotMatrixStudio extends HTMLElement {
             ${[["auto", "auto"], ["digits", "chiffres"], ["bar", "barre"], ["ring", "anneau"]]
               .map(([v, label]) => `<label><input type="radio" name="wsstyle" value="${v}"> ${label}</label>`).join("")}
             <label><input type="checkbox" id="wscolorOn"> couleur à part</label> <input type="color" id="wscolor">
-            <span class="muted small">−/+ : épaisseur de la barre, taille des chiffres ou de l'anneau</span></div>
+            <span class="muted small">−/+ : épaisseur de la barre, taille des chiffres ou de l'anneau</span></div></details>
+          <details class="wgroup" data-group="weather"><summary>🌤 La météo</summary>
           <div class="row" data-zone="today"><b>La goutte</b>
             <label><input type="radio" name="wdrop" value="rain"> risque de pluie</label>
             <label><input type="radio" name="wdrop" value="humidity"> humidité</label></div>
@@ -5662,7 +5677,8 @@ class IDotMatrixStudio extends HTMLElement {
             <span id="wbrightRow">jour <input type="range" id="wday" min="5" max="100" step="5"> <span id="wdayv"></span>
               nuit <input type="range" id="wnight" min="5" max="100" step="5"> <span id="wnightv"></span></span></div>
           <div class="row" data-zone="today"><b>Météo</b><span class="muted small">mise à jour toutes les</span>
-            <select id="wrefresh">${WEATHER_REFRESH.map(([v, label]) => `<option value="${v}" ${view.interval === v ? "selected" : ""}>${label}</option>`).join("")}</select></div>
+            <select id="wrefresh">${WEATHER_REFRESH.map(([v, label]) => `<option value="${v}" ${view.interval === v ? "selected" : ""}>${label}</option>`).join("")}</select></div></details>
+          <details class="wgroup" data-group="agenda"><summary>📅 L'agenda</summary>
           <div data-zone="agenda">
             <div class="row"><b>Agenda</b>
               <label><input type="radio" name="wastyle" value="list"> liste</label>
@@ -5679,7 +5695,8 @@ class IDotMatrixStudio extends HTMLElement {
             <div class="row"><b>Mes rendez-vous</b><span class="muted small">(en plus des agendas)</span></div>
             <div id="wevents"></div>
             <div class="row"><button class="act ghost small" id="waddevent">+ Événement</button></div>
-          </div>
+          </div></details>
+          <details class="wgroup" data-group="pages"><summary>🎉 Les pages du jour</summary>
           <div data-zone="pages">
             <div class="row"><b>Réglages des pages</b><span class="muted small">ce que montrent les écrans qui ont ces parties</span></div>
             <div class="row"><b>Anniversaires</b></div>
@@ -5696,7 +5713,7 @@ class IDotMatrixStudio extends HTMLElement {
             <div id="wnotes"></div>
             <div class="row"><button class="act ghost small" id="waddnote">+ Note</button></div>
             <p class="muted small" id="wpagesToday"></p>
-          </div>
+          </div></details>
           <p class="small" id="wsummary"></p>
           <p class="muted small" id="wsize"></p>
           <p class="muted small" id="wstatus"></p>
@@ -5746,6 +5763,12 @@ class IDotMatrixStudio extends HTMLElement {
     $("#wnight").value = w.brightness?.night ?? 20;
     this._drawProfiles();
     const form = $(".wform");
+    form.querySelectorAll(".wgroup").forEach((g) => g.addEventListener("toggle", () => {
+      if (this._wzone) return;  // opened by a part picked: not remembered
+      this._wopen ||= new Set(["view"]);
+      if (g.open) this._wopen.add(g.dataset.group);
+      else this._wopen.delete(g.dataset.group);
+    }));
     form.oninput = (ev) => this._weatherInput(ev);
     form.onchange = (ev) => this._weatherInput(ev, true);
     form.onclick = (ev) => this._weatherClick(ev);
@@ -5776,11 +5799,20 @@ class IDotMatrixStudio extends HTMLElement {
     this._wzone = zone;
     main.querySelectorAll("#wzones [data-wzone]").forEach((chip) => chip.classList.toggle("on", chip.dataset.wzone === zone));
     // Nothing picked: every setting.
+    // The seconds' settings are the time's, the next days' and the sun's the strip's, a page's the pages'.
+    const page = zone && !WEATHER_VIEW.includes(zone) && !["agenda", "pages", "days", "sun"].includes(zone);
+    const wanted = { seconds: "clock", days: "strip", sun: "strip" }[zone] || (page ? "pages" : zone);
     main.querySelectorAll(".wform [data-zone]").forEach((row) => {
-      const wanted = zone === "seconds" ? "clock" : zone;  // the seconds' settings are the time's
       row.classList.toggle("wzone-off", !!wanted && row.dataset.zone !== wanted);
     });
     main.querySelectorAll(".wform [data-zone]").forEach((row) => { row.style.display = row.classList.contains("wzone-off") ? "none" : ""; });
+    this._wopen ||= new Set(["view"]);
+    main.querySelectorAll(".wform .wgroup").forEach((g) => {
+      const rows = [...g.querySelectorAll("[data-zone]")];
+      const has = !wanted || rows.some((r) => !r.classList.contains("wzone-off"));
+      g.style.display = has ? "" : "none";
+      g.open = wanted ? has : this._wopen.has(g.dataset.group);
+    });
     this._drawWeatherEdit();
     this._outlineWeatherPart();
   }
@@ -5817,6 +5849,11 @@ class IDotMatrixStudio extends HTMLElement {
       main.querySelector("#wscrname").value = p.title || "";
     }
     if (!editable) return;
+    main.querySelector("#wboxbtn").classList.toggle("on", !!p.box);
+    main.querySelector("#wcolOn").checked = !!p.color;
+    main.querySelector("#wcol").value = p.color || "#ffffff";
+    main.querySelector("#wlines").style.display = WEATHER_LINES.includes(zone) ? "" : "none";
+    main.querySelector("#wlines").value = p.lines === "one" ? "one" : "multi";
     main.querySelector("#wolOn").checked = !!p.outline;
     main.querySelector("#wol").value = p.outline || "#ffffff";
     main.querySelector("#wcdtitle").value = p.title || "";
@@ -5825,10 +5862,16 @@ class IDotMatrixStudio extends HTMLElement {
     main.querySelector("#wcddate").disabled = p.date === "weekend";
     const [low, high] = WEATHER_SIZES[zone];
     const size = p.size || this._usualSize(zone);
-    main.querySelector('[data-wedit="smaller"]').disabled = size <= low;
-    main.querySelector('[data-wedit="bigger"]').disabled = size >= high;
-    main.querySelector("#walign").style.display = zone === "name" ? "" : "none";
+    // In its box, A↓ A↑ make the box smaller or bigger (what is in it follows).
+    main.querySelector('[data-wedit="smaller"]').disabled = p.box ? p.box[2] <= 4 && p.box[3] <= 4 : size <= low;
+    main.querySelector('[data-wedit="bigger"]').disabled = p.box ? p.box[2] >= 64 && p.box[3] >= 64 : size >= high;
     main.querySelectorAll("[data-walign]").forEach((b) => b.classList.toggle("on", (p.align || "center") === b.dataset.walign));
+  }
+
+  /** A part back in place: its words, its colours and its lines stay. */
+  _partKept(p) {
+    return Object.fromEntries(Object.entries({ title: p.title, date: p.date, outline: p.outline, color: p.color, lines: p.lines })
+      .filter(([, v]) => v != null));
   }
 
   _drawWeatherShows() {
@@ -5854,11 +5897,27 @@ class IDotMatrixStudio extends HTMLElement {
         ctx.fillRect(0, i * k - 0.5, canvas.width, 1);
       }
     }
+    const parts = this._wscreen().parts || {};
+    ctx.setLineDash([4, 3]);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(255,200,80,.45)";
+    for (const [name, p] of Object.entries(parts)) {
+      const b = p.box && name !== this._wzone && this._weatherBoxes?.[name];
+      if (b) ctx.strokeRect(b[0] * k + 0.5, b[1] * k + 0.5, (b[2] - b[0]) * k - 1, (b[3] - b[1]) * k - 1);
+    }
+    ctx.setLineDash([]);
     const box = this._weatherBoxes?.[this._wzone];
     if (!box) return;
-    ctx.strokeStyle = "#4aa3ff";
-    ctx.lineWidth = 3;
+    const boxed = !!parts[this._wzone]?.box;
+    ctx.strokeStyle = boxed ? "#ffc850" : "#4aa3ff";
+    ctx.lineWidth = boxed ? 2 : 3;
+    if (boxed) ctx.setLineDash([6, 4]);
     ctx.strokeRect(box[0] * k - 1, box[1] * k - 1, (box[2] - box[0]) * k + 2, (box[3] - box[1]) * k + 2);
+    ctx.setLineDash([]);
+    if (boxed) {  // the corner to pull for its size
+      ctx.fillStyle = "#ffc850";
+      ctx.fillRect(box[2] * k - 7, box[3] * k - 7, 9, 9);
+    }
   }
 
   /** The part under a point of the preview (in LEDs): where it is now, else by its usual rows. */
@@ -5881,9 +5940,15 @@ class IDotMatrixStudio extends HTMLElement {
     canvas.onpointerdown = (ev) => {
       const [x, y] = point(ev);
       const hit = this._weatherPartAt(x, y);
-      const p = (hit && this._wscreen().parts?.[hit]) || {};
-      const box = this._weatherBoxes?.[hit];
-      drag = { x, y, hit, moved: false, dx: p.dx || 0, dy: p.dy || 0, box: box ? [...box] : null };
+      // The picked box's corner (within 3 LEDs) pulls its size, wherever the part under it.
+      const own = this._wscreen().parts?.[this._wzone];
+      const corner = own?.box && this._weatherBoxes?.[this._wzone];
+      const resize = !!corner && Math.abs(x - corner[2]) <= 3 && Math.abs(y - corner[3]) <= 3;
+      const target = resize ? this._wzone : hit;
+      const p = (target && this._wscreen().parts?.[target]) || {};
+      const box = this._weatherBoxes?.[target];
+      drag = { x, y, hit: target, moved: false, dx: p.dx || 0, dy: p.dy || 0, box: box ? [...box] : null,
+        own: p.box ? [...p.box] : null, resize };
       canvas.setPointerCapture?.(ev.pointerId);
     };
     canvas.onpointermove = (ev) => {
@@ -5905,11 +5970,21 @@ class IDotMatrixStudio extends HTMLElement {
         return best;
       };
       const b = drag.box;
-      const [sx, sy] = this._wgrid && b
-        ? [snap([b[0], b[2], (b[0] + b[2]) / 2], dx), snap([b[1], b[3], (b[1] + b[3]) / 2], dy)] : [dx, dy];
-      Object.assign(this._weatherPart(this._wzone), {
-        dx: Math.max(-63, Math.min(63, Math.round(drag.dx + sx))), dy: Math.max(-63, Math.min(63, Math.round(drag.dy + sy))),
-      });
+      const o = drag.own;
+      if (o && drag.resize) {  // its corner: the box's size, 3 LEDs at least, inside the frame
+        const [sx, sy] = this._wgrid ? [snap([o[0] + o[2]], dx), snap([o[1] + o[3]], dy)] : [dx, dy];
+        this._weatherPart(this._wzone).box = [o[0], o[1],
+          Math.max(3, Math.min(64 - o[0], o[2] + sx)), Math.max(3, Math.min(64 - o[1], o[3] + sy))];
+      } else if (o) {  // the box moves, inside the frame
+        const [sx, sy] = this._wgrid ? [snap([o[0], o[0] + o[2], o[0] + o[2] / 2], dx), snap([o[1], o[1] + o[3], o[1] + o[3] / 2], dy)] : [dx, dy];
+        this._weatherPart(this._wzone).box = [Math.max(0, Math.min(64 - o[2], o[0] + sx)), Math.max(0, Math.min(64 - o[3], o[1] + sy)), o[2], o[3]];
+      } else {
+        const [sx, sy] = this._wgrid && b
+          ? [snap([b[0], b[2], (b[0] + b[2]) / 2], dx), snap([b[1], b[3], (b[1] + b[3]) / 2], dy)] : [dx, dy];
+        Object.assign(this._weatherPart(this._wzone), {
+          dx: Math.max(-63, Math.min(63, Math.round(drag.dx + sx))), dy: Math.max(-63, Math.min(63, Math.round(drag.dy + sy))),
+        });
+      }
       if (!this._weatherDragging) {
         this._weatherDragging = true;
         this._weatherPreview().finally(() => { this._weatherDragging = false; });
@@ -6056,6 +6131,20 @@ class IDotMatrixStudio extends HTMLElement {
       this._weatherPart(this._wzone).outline = main.querySelector("#wolOn").checked ? main.querySelector("#wol").value : null;
       this._weatherPreview(true);
     };
+    main.querySelector("#wcolOn").onchange = main.querySelector("#wcol").oninput = () => {
+      if (!this._wzone) return;
+      const p = this._weatherPart(this._wzone);
+      if (main.querySelector("#wcolOn").checked) p.color = main.querySelector("#wcol").value;
+      else delete p.color;
+      this._weatherPreview(true);
+    };
+    main.querySelector("#wlines").onchange = () => {
+      if (!this._wzone) return;
+      const p = this._weatherPart(this._wzone);
+      if (main.querySelector("#wlines").value === "one") p.lines = "one";
+      else delete p.lines;
+      this._weatherPreview(true);
+    };
     main.querySelector("#wscrname").oninput = () => {
       this._weatherPart("name").title = main.querySelector("#wscrname").value.trim() || null;
       clearTimeout(this._weatherTypeTimer);
@@ -6079,8 +6168,7 @@ class IDotMatrixStudio extends HTMLElement {
     this._drawWeatherShows();
     main.querySelector("#wresetall").onclick = () => {  // this screen's parts back in place, at their size
       const screen = this._wscreen();
-      screen.parts = Object.fromEntries(Object.entries(screen.parts || {}).map(([k, p]) => [k,
-        Object.fromEntries(Object.entries({ title: p.title, date: p.date, outline: p.outline }).filter(([, v]) => v != null))]));
+      screen.parts = Object.fromEntries(Object.entries(screen.parts || {}).map(([k, p]) => [k, this._partKept(p)]));
       this._drawWeatherShows();
       this._drawWeatherEdit();
       this._weatherPreview(true);
@@ -6089,7 +6177,14 @@ class IDotMatrixStudio extends HTMLElement {
       const button = ev.target.closest("[data-walign]");
       if (!button) return;
       ev.stopPropagation();
-      this._weatherPart("name").align = button.dataset.walign;
+      const p = this._weatherPart(this._wzone);
+      const box = this._weatherBoxes?.[this._wzone];
+      if (this._wzone !== "name" && !p.box && box) {
+        p.box = [0, box[1], 64, Math.max(3, box[3] - box[1])];
+        delete p.dx;
+        delete p.dy;
+      }
+      p.align = button.dataset.walign;
       this._drawWeatherEdit();
       this._weatherPreview(true);
     };
@@ -6097,6 +6192,46 @@ class IDotMatrixStudio extends HTMLElement {
       // Centre, or a corner: from where the part is now (its box) and where it would be unmoved.
       const place = ev.target.closest("[data-wplace]");
       const box = this._weatherBoxes?.[this._wzone];
+      const own = this._wzone && this._wscreen().parts?.[this._wzone]?.box;
+      if (own && place) {
+        const [w, h] = [own[2], own[3]];
+        const spot = { center: [(64 - w) / 2, (64 - h) / 2], tl: [0, 0], tr: [64 - w, 0], bl: [0, 64 - h], br: [64 - w, 64 - h] }[place.dataset.wplace];
+        this._weatherPart(this._wzone).box = [Math.round(spot[0]), Math.round(spot[1]), w, h];
+        this._weatherPreview(true);
+        return;
+      }
+      if (own && ev.target.closest("[data-wmove]")) {
+        const [mx, my] = ev.target.closest("[data-wmove]").dataset.wmove.split(",").map(Number);
+        this._weatherPart(this._wzone).box = [Math.max(0, Math.min(64 - own[2], own[0] + mx)), Math.max(0, Math.min(64 - own[3], own[1] + my)), own[2], own[3]];
+        this._weatherPreview(true);
+        return;
+      }
+      const sizer = ev.target.closest('[data-wedit="smaller"], [data-wedit="bigger"]');
+      if (own && sizer) {  // 2 LEDs each side, around its middle, inside the frame
+        const step = sizer.dataset.wedit === "bigger" ? 2 : -2;
+        const w = Math.max(4, Math.min(64, own[2] + 2 * step));
+        const h = Math.max(4, Math.min(64, own[3] + 2 * step));
+        const x = Math.max(0, Math.min(64 - w, Math.round(own[0] + (own[2] - w) / 2)));
+        const y = Math.max(0, Math.min(64 - h, Math.round(own[1] + (own[3] - h) / 2)));
+        this._weatherPart(this._wzone).box = [x, y, w, h];
+        this._drawWeatherEdit();
+        this._weatherPreview(true);
+        return;
+      }
+      if (this._wzone && ev.target.closest('[data-wedit="box"]')) {
+        const p = this._weatherPart(this._wzone);
+        if (p.box) delete p.box;
+        else {  // where it is now, a little room around
+          const b = box || [0, 16, 64, 32];
+          const [x, y] = [Math.max(0, b[0] - 1), Math.max(0, b[1] - 1)];
+          p.box = [x, y, Math.max(4, Math.min(64 - x, b[2] - b[0] + 2)), Math.max(4, Math.min(64 - y, b[3] - b[1] + 2))];
+          delete p.dx;
+          delete p.dy;
+        }
+        this._drawWeatherEdit();
+        this._weatherPreview(true);
+        return;
+      }
       if (place && this._wzone && box) {
         const p = this._weatherPart(this._wzone);
         const [w, h] = [box[2] - box[0], box[3] - box[1]];
@@ -6127,8 +6262,7 @@ class IDotMatrixStudio extends HTMLElement {
         this._pickWeatherZone("");
         this._drawWeatherScreen();
       } else {
-        this._wscreen().parts[this._wzone] = Object.fromEntries(Object.entries({ title: p.title, date: p.date, outline: p.outline })
-          .filter(([, v]) => v != null));
+        this._wscreen().parts[this._wzone] = this._partKept(p);
       }
       this._drawWeatherShows();
       this._drawWeatherEdit();
