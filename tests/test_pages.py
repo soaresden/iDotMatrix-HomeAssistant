@@ -346,3 +346,20 @@ def test_a_screen_can_have_several_strips_of_different_kinds():
     assert "days" not in meteo.element_boxes(forecast, now, hours_only, 64, "Lyon",
                                              meteo.page_list([forecast], hours_only, None, now)[0])
     assert meteo.page_title(turn, ["Lyon"]) == "Lyon"
+
+
+def test_agenda_and_world_days_headings_are_typed_in():
+    forecast = meteo.Forecast("Lyon", WeatherData("sunny", 12), fetched=1.0)
+    now = datetime(2026, 11, 3, 12, 0, tzinfo=TZ)
+    items = [pages.Occurrence("Foot", now.replace(hour=18), None)]
+    draw = lambda **cfg: meteo.render_meteo(forecast, now, meteo.WEATHER_SCHEMA(  # noqa: E731
+        {"screens": [{"parts": {"agenda": {}}}], **cfg}),
+        page=meteo.page_list([forecast], meteo.WEATHER_SCHEMA({"screens": [{"parts": {"agenda": {}}}], **cfg}),
+                             pages.Extras(agenda=items), now)[0]).tobytes()
+    plain = draw()
+    assert draw(agenda_title="MON PLANNING") != plain and draw(agenda_day=False) != plain and draw(agenda_time=False) != plain
+    assert draw(agenda_title="", agenda_day=False).count(b"\x00") > plain.count(b"\x00")  # no heading at all
+    cfg = meteo.WEATHER_SCHEMA({"world_days_title": "AUJOURD'HUI C'EST", "screens": [{"parts": {"world_days": {}}}]})
+    turn = meteo.page_list([forecast], cfg, pages.Extras(world_days=["Journée mondiale des villes"]), now)[0]
+    default = meteo.WEATHER_SCHEMA({"screens": [{"parts": {"world_days": {}}}]})
+    assert meteo.render_meteo(forecast, now, cfg, page=turn).tobytes() != meteo.render_meteo(forecast, now, default, page=turn).tobytes()

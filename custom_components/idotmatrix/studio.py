@@ -578,7 +578,7 @@ async def async_setup_studio(hass: HomeAssistant, static_url: str) -> None:
                     ws_organize, ws_lighten, ws_jobs, ws_job_cancel,
                     ws_log, ws_log_add, ws_log_clear, ws_write_pause,
                     ws_collection_save, ws_collection_delete, ws_folder_hidden,
-                    ws_weather_sources, ws_weather_geocode, ws_weather_preview):
+                    ws_weather_sources, ws_weather_geocode, ws_weather_preview, ws_weather_calendars_refresh):
         websocket_api.async_register_command(hass, command)
     try:  # the Store tab is optional: left out of public copies of the integration
         from . import store_ws
@@ -1522,6 +1522,15 @@ def _start_display(hass: HomeAssistant, path: str, entry_id: str | None = None) 
 def ws_weather_sources(hass, connection, msg):
     """Where the weather can come from: Home Assistant's weather entities, zones and home."""
     connection.send_result(msg["id"], _studio(hass).weather.sources())
+
+
+@websocket_api.websocket_command({vol.Required("type"): "idotmatrix/studio/weather_calendars_refresh"})
+@websocket_api.require_admin
+@callback
+def ws_weather_calendars_refresh(hass, connection, msg):
+    """The agenda's calendars (iCal links, Home Assistant's) read again now, not in 6 hours."""
+    _studio(hass).weather.forget_calendars()
+    connection.send_result(msg["id"], {})
 
 
 @websocket_api.websocket_command({

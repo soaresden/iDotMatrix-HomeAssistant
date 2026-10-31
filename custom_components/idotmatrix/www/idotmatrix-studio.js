@@ -5595,6 +5595,8 @@ class IDotMatrixStudio extends HTMLElement {
             <button class="act ghost small" data-wedit="smaller" title="Plus petit">A↓</button><button class="act ghost small" data-wedit="bigger" title="Plus grand">A↑</button>
             ${[["-1,0", "←", "1 LED à gauche"], ["1,0", "→", "1 LED à droite"], ["0,-1", "↑", "1 LED plus haut"], ["0,1", "↓", "1 LED plus bas"]]
               .map(([m, icon, title]) => `<button class="act ghost small" data-wmove="${m}" title="${title}">${icon}</button>`).join("")}
+            ${[["center", "⊕", "Au centre"], ["tl", "↖", "En haut à gauche"], ["tr", "↗", "En haut à droite"], ["bl", "↙", "En bas à gauche"], ["br", "↘", "En bas à droite"]]
+              .map(([k, icon, title]) => `<button class="act ghost small" data-wplace="${k}" title="${title}">${icon}</button>`).join("")}
             <button class="act ghost small" data-wedit="remove" title="L'enlever de cet écran">Retirer</button><button class="act ghost small" data-wedit="reset" title="Remettre à sa place">↺</button>
             <label class="small" title="Une ligne de cette couleur autour (du noir se voit avec : une LED noire est éteinte)"><input type="checkbox" id="wolOn"> contour</label><input type="color" id="wol" value="#ffffff">
             <span id="walign">${[["left", "⇤", "À gauche"], ["center", "↔", "Au centre"], ["right", "⇥", "À droite"]]
@@ -5670,6 +5672,10 @@ class IDotMatrixStudio extends HTMLElement {
             <div class="row" id="wcalendars">${(sources.calendars || []).map((c) => `<label><input type="checkbox" data-cal="${esc(c.entity_id)}"> 📅 ${esc(c.name)}</label>`).join("")}</div>
             <div class="row"><textarea id="wics" class="grow" rows="2" placeholder="Liens iCal d'autres agendas (Google : Paramètres → Adresse secrète au format iCal), un par ligne"></textarea></div>
             <div id="wicsstatus" class="small"></div>
+            <div class="row small"><button class="act ghost small" id="wcalrefresh" title="Relit tout de suite tes liens iCal et agendas (sinon toutes les 6 h)">⟳ Relire les agendas maintenant</button></div>
+            <div class="row small"><b>Titre</b><input type="text" id="wagendatitle" maxlength="20" placeholder="(aucun)">
+              <label><input type="checkbox" id="wagendaday"> le jour à côté</label>
+              <label><input type="checkbox" id="wagendatime"> l'heure des rendez-vous</label></div>
             <div class="row"><b>Mes rendez-vous</b><span class="muted small">(en plus des agendas)</span></div>
             <div id="wevents"></div>
             <div class="row"><button class="act ghost small" id="waddevent">+ Événement</button></div>
@@ -5680,6 +5686,7 @@ class IDotMatrixStudio extends HTMLElement {
             <div id="wbirthdays"></div>
             <div class="row"><button class="act ghost small" id="waddbirthday">+ Anniversaire</button></div>
             <div id="wtoday"></div>
+            <div class="row"><b>Journées mondiales</b><input type="text" id="wworldtitle" maxlength="24" placeholder="J. MONDIALE (selon le jour)"></div>
             <div class="row"><b>Saint</b><input type="text" id="wsainttitle" maxlength="24" placeholder="BONNE FÊTE">
               <label><input type="checkbox" id="wsaintto"> « À » / « AUX »</label></div>
             <div class="row"><b>N'oubliez pas</b><span class="muted small">l'agenda du jour, et :</span></div>
@@ -5720,6 +5727,10 @@ class IDotMatrixStudio extends HTMLElement {
     main.querySelectorAll("[data-cal]").forEach((box) => { box.checked = (w.agenda_calendars || []).includes(box.dataset.cal); });
     $("#wics").value = (w.agenda_ics || []).join("\n");
     $("#wsainttitle").value = w.saint_title || "";
+    $("#wworldtitle").value = w.world_days_title || "";
+    $("#wagendatitle").value = w.agenda_title ?? "AGENDA";
+    $("#wagendaday").checked = w.agenda_day !== false;
+    $("#wagendatime").checked = w.agenda_time !== false;
     $("#wsaintto").checked = w.saint_to !== false;
     this._drawBirthdays(w.birthdays || []);
     this._drawReminders(w.reminders || []);
@@ -6083,6 +6094,19 @@ class IDotMatrixStudio extends HTMLElement {
       this._weatherPreview(true);
     };
     main.querySelector("#wedit").onclick = (ev) => {
+      // Centre, or a corner: from where the part is now (its box) and where it would be unmoved.
+      const place = ev.target.closest("[data-wplace]");
+      const box = this._weatherBoxes?.[this._wzone];
+      if (place && this._wzone && box) {
+        const p = this._weatherPart(this._wzone);
+        const [w, h] = [box[2] - box[0], box[3] - box[1]];
+        const home = [box[0] - (p.dx || 0), box[1] - (p.dy || 0)];
+        const spot = { center: [(64 - w) / 2, (64 - h) / 2], tl: [0, 0], tr: [64 - w, 0], bl: [0, 64 - h], br: [64 - w, 64 - h] }[place.dataset.wplace];
+        p.dx = Math.max(-63, Math.min(63, Math.round(spot[0] - home[0])));
+        p.dy = Math.max(-63, Math.min(63, Math.round(spot[1] - home[1])));
+        this._weatherPreview(true);
+        return;
+      }
       const arrow = ev.target.closest("[data-wmove]");
       if (arrow && this._wzone) {
         const [mx, my] = arrow.dataset.wmove.split(",").map(Number);
@@ -6175,6 +6199,10 @@ class IDotMatrixStudio extends HTMLElement {
     w.agenda_calendars = [...main.querySelectorAll("[data-cal]")].filter((box) => box.checked).map((box) => box.dataset.cal);
     w.agenda_ics = $("#wics").value.split(/\s+/).filter((u) => /^(https?|webcal):\/\//.test(u)).slice(0, 5);
     w.saint_title = $("#wsainttitle").value.trim() || "BONNE FÊTE";
+    w.world_days_title = $("#wworldtitle").value.trim();
+    w.agenda_title = $("#wagendatitle").value.trim();
+    w.agenda_day = $("#wagendaday").checked;
+    w.agenda_time = $("#wagendatime").checked;
     w.saint_to = $("#wsaintto").checked;
     w.reminders = [...main.querySelectorAll("#wreminders [data-r]")].map((row) => {
       const date = row.querySelector("[data-rdate]").value;
@@ -6373,6 +6401,13 @@ class IDotMatrixStudio extends HTMLElement {
       t.closest("[data-r]").remove();
       this._weatherOptions();
       this._weatherPreview(true);
+    } else if (t.closest?.("#wcalrefresh")) {
+      const button = t.closest("#wcalrefresh");
+      button.disabled = true;
+      button.textContent = "⟳ Lecture…";
+      this._ws({ type: "idotmatrix/studio/weather_calendars_refresh" })
+        .then(() => this._weatherPreview(true))
+        .finally(() => { button.disabled = false; button.textContent = "⟳ Relire les agendas maintenant"; });
     } else if (t.closest?.("#waddevent")) {
       this._weatherOptions();
       const d = new Date();

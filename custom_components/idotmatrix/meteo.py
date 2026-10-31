@@ -251,6 +251,12 @@ WEATHER_SCHEMA = vol.All(_one_place_at_the_top, vol.Schema({
     }], vol.Length(max=50)),
     vol.Optional("agenda", default=False): bool,
     vol.Optional("agenda_style", default="list"): vol.In(("list", "timeline")),
+    # The agenda's heading (empty: none), the day at its right, each appointment's time.
+    vol.Optional("agenda_title", default="AGENDA"): vol.All(str, vol.Length(max=20)),
+    vol.Optional("agenda_day", default=True): bool,
+    vol.Optional("agenda_time", default=True): bool,
+    # The world days' heading (empty: « J. MONDIALE » or « J. INTERNATIONALE » as the day says).
+    vol.Optional("world_days_title", default=""): vol.All(str, vol.Length(max=24)),
     # How fast a title too long slides (5, 10, 16 or 24 LEDs a second).
     vol.Optional("scroll_speed", default="normal"): vol.In(("slow", "normal", "fast", "faster")),
     vol.Optional("agenda_calendars", default=list): [vol.Match(r"^calendar\.\w+$")],
@@ -1530,6 +1536,12 @@ class WeatherService:
             agenda = cached[1]
         return pages_mod.build_extras(cfg, texts, now, agenda)
 
+    def forget_calendars(self) -> None:
+        """Calendar files and Home Assistant's calendars read again at the next minute (a title changed...)."""
+        self._ics = {url: (0.0, text) for url, (_t, text) in self._ics.items()}
+        self._ics_failed = {}
+        self._agenda = {}
+
     def ics_status(self, cfg: dict) -> list[dict]:
         """Each iCal link of the agenda: read (with its number of events) or why not."""
         out = []
@@ -1945,7 +1957,8 @@ def _draw_page(img: Image.Image, page: dict, now: datetime, cfg: dict, size: int
         # « JOURNÉE MONDIALE » as the heading, the rest under it with its article: « DE LA GENTILLESSE ».
         kinds = [re.match(r"^\W*journ[ée]e (mondiale|internationale)\b", item, flags=re.I) for item in page["items"]]
         texts = [_small_text(item[m.end():] if m else item).strip() for item, m in zip(page["items"], kinds)]
-        heading = _small_text(f"J. {kinds[0].group(1)}" if kinds and kinds[0] else "AUJOURD'HUI").strip()
+        heading = _small_text(cfg.get("world_days_title") or
+                              (f"J. {kinds[0].group(1)}" if kinds and kinds[0] else "AUJOURD'HUI")).strip()
         big, headed = _text_level(texts, size - 2, bottom - top - 1 - 2 * (len(texts) - 1), level, 7)
         y = top + 1
         if headed:
@@ -2017,8 +2030,11 @@ def _draw_agenda(d: ImageDraw.ImageDraw, items: list, style: str, now: datetime,
                  color: tuple, level: int = 2, img: Image.Image | None = None) -> None:
     hour24 = cfg.get("hour24", True)
     day = f"{pages_mod.ascii_upper(('LU', 'MA', 'ME', 'JE', 'VE', 'SA', 'DI')[now.weekday()])} {now.day}"
-    _draw_small(d, 1, top + 1, "AGENDA", DIM)
-    _draw_small(d, size - _small_width(day) - 1, top + 1, day, DIM)
+    heading = _small_text(cfg.get("agenda_title", "AGENDA")).strip()
+    if heading:
+        _draw_small(d, 1, top + 1, heading, DIM)
+    if cfg.get("agenda_day", True):
+        _draw_small(d, size - _small_width(day) - 1, top + 1, day, DIM)
     if not items:
         message = _small_text("Rien de prévu")
         _draw_small(d, (size - _small_width(message)) // 2, top + 20, message, NAME_COLOR)
@@ -2071,9 +2087,11 @@ def _draw_agenda(d: ImageDraw.ImageDraw, items: list, style: str, now: datetime,
             when = _clock_text(local, hour24)
             past = (o.end or o.start + timedelta(hours=1)) <= now
             tint = DIM if past else color
+        if not cfg.get("agenda_time", True):
+            when = ""
         title = _small_text(o.summary).strip()
         width = _text_width(title) if big else _small_width(title)
-        x = _small_width(when) + 4
+        x = _small_width(when) + 4 if when else 1
         rows.append((when, tint, title, width, x, past))
     over = [max(0, width - (size - x)) for _w, _t, _ti, width, x, _p in rows]
     first, local_t = 0, t
@@ -2089,7 +2107,8 @@ def _draw_agenda(d: ImageDraw.ImageDraw, items: list, style: str, now: datetime,
         when, tint, title, width, x, past = rows[n]
         if y + height > size:
             break
-        _draw_small(d, 1, y + (height - 5) // 2, when, tint)
+        if when:
+            _draw_small(d, 1, y + (height - 5) // 2, when, tint)
         room = size - x
         strip = Image.new("RGB", (max(1, width), height), (0, 0, 0))
         (_draw_text if big else _draw_small)(ImageDraw.Draw(strip), 0, 0, title, DIM if past else NAME_COLOR)
