@@ -1,5 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
 
+from PIL import Image
+
 from custom_components.idotmatrix import meteo, pages
 from custom_components.idotmatrix.weather import WeatherData
 
@@ -363,3 +365,46 @@ def test_agenda_and_world_days_headings_are_typed_in():
     turn = meteo.page_list([forecast], cfg, pages.Extras(world_days=["Journée mondiale des villes"]), now)[0]
     default = meteo.WEATHER_SCHEMA({"screens": [{"parts": {"world_days": {}}}]})
     assert meteo.render_meteo(forecast, now, cfg, page=turn).tobytes() != meteo.render_meteo(forecast, now, default, page=turn).tobytes()
+
+
+def test_a_part_in_its_own_box_shows_the_richest_that_fits():
+    hours = [meteo.Hour(datetime(2026, 11, 3, 12 + h, 0, tzinfo=TZ), "sunny", 10 + h) for h in range(12)]
+    forecast = meteo.Forecast("Lyon", WeatherData("sunny", 12, high=15, low=6), rain=20, fetched=1.0, hours=hours)
+    now = datetime(2026, 11, 3, 12, 0, tzinfo=TZ)
+
+    def drawn(parts):
+        cfg = meteo.WEATHER_SCHEMA({"screens": [{"parts": parts}]})
+        turn = meteo.page_list([forecast], cfg, None, now)[0]
+        return meteo.render_meteo(forecast, now, cfg, label="Lyon", page=turn), meteo.element_boxes(forecast, now, cfg, 64, "Lyon", turn)
+
+    big, boxes = drawn({"today": {"box": [0, 0, 64, 30]}})
+    small, _ = drawn({"today": {"box": [40, 40, 14, 7]}})
+    assert boxes["today"] == (0, 0, 64, 30)  # the box itself, to pick it
+    assert big.crop((0, 0, 64, 30)).getbbox() and not big.crop((0, 30, 64, 64)).getbbox()  # all inside its box
+    lit = small.getbbox()
+    assert lit and lit[0] >= 40 and lit[1] >= 40 and lit[2] <= 54 and lit[3] <= 47  # a tiny box: the temperature
+    clock, _ = drawn({"clock": {"box": [0, 0, 64, 24], "color": "#ff0000"}})
+    assert {p for p in clock.getdata() if any(p)} <= {(255, 0, 0)}  # its colour
+    left, _ = drawn({"name": {"box": [0, 50, 64, 7], "align": "left"}})
+    right, _ = drawn({"name": {"box": [0, 50, 64, 7], "align": "right"}})
+    assert left.getbbox()[0] < right.getbbox()[0]
+
+
+def test_one_line_texts_scroll_from_right_to_left_and_nights_show_the_moon():
+    strip = Image.new("RGB", (100, 5), (0, 0, 0))
+    strip.paste((255, 255, 255), (0, 0, 10, 5))  # a mark at its start
+    first = meteo._ticker(strip, 64, 0, 10)
+    later = meteo._ticker(strip, 64, 1, 10)
+    assert first.getpixel((0, 0)) != (0, 0, 0) and later.getpixel((0, 0)) == (0, 0, 0)  # moved left
+    assert meteo._ticker(strip.crop((0, 0, 30, 5)), 64, 5, 10).width == 30  # fits: still
+    forecast = meteo.Forecast("Lyon", WeatherData("sunny", 12), fetched=1.0,
+                              sun=[(datetime(2026, 11, 3, 17, 20, tzinfo=TZ), "set"), (datetime(2026, 11, 4, 7, 40, tzinfo=TZ), "rise")])
+    night = datetime(2026, 11, 3, 22, 0, tzinfo=TZ)
+    assert meteo.night_condition("sunny", forecast, night) == "clear-night"
+    assert meteo.night_condition("partlycloudy", forecast, night) == "partlycloudy-night"
+    assert meteo.night_condition("sunny", forecast, datetime(2026, 11, 3, 12, 0, tzinfo=TZ)) == "sunny"
+    cfg = meteo.WEATHER_SCHEMA({"scroll_speed": "normal", "screens": [{"parts": {"fact": {"lines": "one", "box": [0, 20, 64, 9]}}}]})
+    turn = meteo.page_list([forecast], cfg, None, night)[0]
+    a = meteo.render_meteo(forecast, night, cfg, page=turn)
+    b = meteo.render_meteo(forecast, night.replace(second=1), cfg, page=turn)
+    assert a.getbbox()[3] <= 29 and a.tobytes() != b.tobytes()  # one line, in its box, scrolling

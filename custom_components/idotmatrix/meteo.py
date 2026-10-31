@@ -196,6 +196,13 @@ PART_SCHEMA = vol.Schema({
     vol.Optional("align"): vol.In(("left", "center", "right")),
     # A line of that colour around it (black letters show with one: a black LED is off).
     vol.Optional("outline"): vol.Any(None, vol.Match(r"^#[0-9a-fA-F]{6}$")),
+    # A box drawn by hand (x, y, width, height in LEDs): the part's content, the richest that fits.
+    vol.Optional("box"): vol.Any(None, vol.All([vol.All(vol.Coerce(int), vol.Range(min=0, max=64))],
+                                               vol.Length(min=4, max=4))),
+    # Its colour (its letters; a picture takes that colour's shades).
+    vol.Optional("color"): vol.Any(None, vol.Match(r"^#[0-9a-fA-F]{6}$")),
+    # A text on one line (it scrolls from right to left) or on several.
+    vol.Optional("lines"): vol.Any(None, vol.In(("one", "multi"))),
     # The countdown's words (« Vacances aux Maldives »), the name's own text on this screen.
     vol.Optional("title"): vol.Any(None, vol.All(str, vol.Length(max=40))),
     vol.Optional("date"): vol.Any(None, vol.Match(r"^(weekend|\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?)$")),
@@ -514,7 +521,19 @@ def hour_slots(forecast: Forecast, now: datetime, cfg: dict) -> list[Slot]:
             if match is None:
                 break
             picked.append(match)
-    return [Slot(f"{h.time.hour}H", h.condition, temperature=h.temperature) for h in picked[:HOUR_SLOTS]]
+    return [Slot(f"{h.time.hour}H", night_condition(h.condition, forecast, h.time), temperature=h.temperature)
+            for h in picked[:HOUR_SLOTS]]
+
+
+def night_condition(condition: str, forecast: Forecast, when: datetime) -> str:
+    """At night (between the place's sunset and sunrise), a sun becomes the moon: some forecasts
+    still say « sunny » for the hours after sunset."""
+    day = is_daytime(forecast, when)
+    if day is None:  # no sunrise and sunset known: by the hour
+        day = 7 <= when.hour < 19
+    if day:
+        return condition
+    return {"sunny": "clear-night", "clear": "clear-night", "partlycloudy": "partlycloudy-night"}.get(condition, condition)
 
 
 def next_sun(forecast: Forecast, now: datetime) -> tuple[datetime | None, datetime | None]:
@@ -762,6 +781,10 @@ def _icon16(condition: str, phase: int = 0, when: datetime | None = None) -> Ima
     if condition == "clear-night" and when is not None:
         _moon16(d, when, phase)
         return img
+    if condition == "partlycloudy-night":  # the moon behind a cloud
+        _moon16(d, when or local_now(), phase)
+        _cloud16(img, PAL["cloud_lt"], x=8, y=13, w=21)
+        return img
     if condition in ("sunny", "clear"):
         _sun16(d, 8, 8, phase)
     elif condition == "partlycloudy":
@@ -835,7 +858,7 @@ def render_meteo(forecast: Forecast, now: datetime, cfg: dict | None = None, siz
         return img
     if size < 64:
         _draw_text(d, (size - _text_width(clock)) // 2, 1, clock, _rgb(cfg.get("clock_color"), CLOCK_COLOR))
-        img.paste(_icon16(today.condition, phase, now), (0, 10))
+        img.paste(_icon16(night_condition(today.condition, forecast, now), phase, now), (0, 10))
         if today.temperature is not None:
             _draw_text(d, 17, 11, _deg(today.temperature), _temp_color(today.temperature, today.temp_unit))
         if rain := _rain_text(forecast):
@@ -931,7 +954,8 @@ def _layers(forecast: Forecast, now: datetime, cfg: dict, size: int, label: str 
     if page is not None and page.get("kind") == "screen":
         for kind, block in page["pages"].items():
             layer, d = _layer(size)
-            _draw_page(layer, block, now, cfg, size, 24 if flip else 16, color, part_size(kind, cfg))
+            lines = ((cfg.get("layout") or {}).get(kind) or {}).get("lines")
+            _draw_page(layer, {**block, "lines": lines}, now, cfg, size, 24 if flip else 16, color, part_size(kind, cfg))
             layers.append((kind, layer))
     elif page is not None and page.get("kind") != "weather":
         layer, d = _layer(size)
@@ -1031,6 +1055,13 @@ def _compose(forecast: Forecast, now: datetime, cfg: dict, size: int, label: str
         if spec.get("hidden") or (screen and not on_screen):
             continue
         dx, dy = int(spec.get("dx", 0)), int(spec.get("dy", 0))
+        tint = _rgb(spec["color"], (255, 255, 255)) if spec.get("color") else None
+        if spec.get("box"):  # its own box: the richest that fits, where the box is
+            layer = _boxed(name, forecast, now, cfg, size, label, second, phase, page, spec,
+                           tint or _part_color(name, cfg))
+            dx = dy = 0
+        if tint:  # the whole part in that colour (a picture in its shades)
+            layer = _tinted(layer, tint)
         r, g, b = layer.split()
         mask = ImageChops.lighter(ImageChops.lighter(r, g), b).point(lambda v: 255 if v else 0)
         if spec.get("outline"):  # every LED around the part, in that colour, under it
@@ -1040,9 +1071,141 @@ def _compose(forecast: Forecast, now: datetime, cfg: dict, size: int, label: str
             layer = layer.copy()
         img.paste(layer, (dx, dy), ImageChops.subtract(mask, ring) if spec.get("outline") else mask)
         box = mask.getbbox()
-        if box:
+        if spec.get("box"):  # the box itself, to pick it even where it is empty
+            x, y, w, h = (int(v) for v in spec["box"])
+            boxes[name] = (x, y, min(size, x + w), min(size, y + h))
+        elif box:
             boxes[name] = (box[0] + dx, box[1] + dy, box[2] + dx, box[3] + dy)
     return img, boxes
+
+
+def _part_color(name: str, cfg: dict) -> tuple:
+    """A part's usual colour when drawn in a box (its letters)."""
+    if name in ("clock", "seconds"):
+        return _rgb(cfg.get("clock_color"), CLOCK_COLOR)
+    return {"date": DATE_COLOR}.get(name, NAME_COLOR)
+
+
+def _tinted(layer: Image.Image, color: tuple) -> Image.Image:
+    """``layer`` in ``color``: each LED that colour, as bright as it was."""
+    if not any(color):
+        color = (1, 1, 1)
+    r, g, b = layer.split()
+    light = ImageChops.lighter(ImageChops.lighter(r, g), b)  # each LED's brightest channel: pure colours stay bright
+    out = Image.new("RGB", layer.size, (0, 0, 0))
+    lit = light.point(lambda v: 255 if v else 0)
+    shades = Image.merge("RGB", [light.point(lambda v, c=c: max(1 if c else 0, v * c // 255)) for c in color])
+    out.paste(shades, (0, 0), lit)
+    return out
+
+
+def _tight(img: Image.Image) -> Image.Image | None:
+    box = img.getbbox()
+    return img.crop(box) if box else None
+
+
+def _text_image(text: str, color: tuple, scale: int = 0) -> Image.Image | None:
+    """``text`` in the 5×7 letters at ``scale`` (1-3), or the small letters (0)."""
+    if not text:
+        return None
+    width = _text_width(text, scale) if scale else _small_width(text)
+    img = Image.new("RGB", (max(1, width), 7 * scale if scale else 5), (0, 0, 0))
+    (_draw_text(ImageDraw.Draw(img), 0, 0, text, color, scale) if scale
+     else _draw_small(ImageDraw.Draw(img), 0, 0, text, color))
+    return img
+
+
+def _text_choices(texts: list[str], color: tuple) -> list:
+    """Each text from the longest form to the shortest, each in letters from the biggest to the smallest."""
+    return [_text_image(text, color, scale) for text in texts if text for scale in (3, 2, 1, 0)]
+
+
+def _box_choices(name: str, forecast: Forecast, now: datetime, cfg: dict, label: str | None,
+                 second: int | None, phase: int, page: dict | None, color: tuple, w: int, h: int) -> list:
+    """What a part can show, from the richest to the least: the first that fits its box is drawn."""
+    hour24 = cfg.get("hour24", True)
+    if name == "clock":
+        text = format_time(cfg["time_format"], now) if cfg.get("time_format") else _clock_text(now, hour24)
+        return _text_choices([text, text.replace(":", "")], color)
+    if name == "seconds":
+        return _text_choices([f"{second if second is not None else now.second:02d}"], color)
+    if name == "date":
+        forms = [cfg["date_format"]] if cfg.get("date_format") else []
+        return _text_choices([format_date(f, now) for f in forms + ["dddd d mmmm", "ddd d mmm", "ww d mmm", "ww d", "d"]], color)
+    if name == "name":
+        text = _small_text(screen_name(label, 999) if label else "").strip()
+        return _text_choices([text] + [text[:n].strip() for n in range(len(text) - 1, 2, -1)], color)
+    if name == "today":
+        out = []
+        for level in (3, 2, 1):
+            img = Image.new("RGB", (64, 40), (0, 0, 0))
+            _draw_today(img, forecast, 0, 64, phase, level, cfg.get("drop", "rain"), 0,
+                        set(cfg.get("today_hide") or ()), when=now)
+            out.append(_tight(img))
+        icon = _icon16(night_condition(forecast.now.condition, forecast, now), phase, now)
+        temp = _deg(forecast.now.temperature)
+        tint = _temp_color(forecast.now.temperature, forecast.now.temp_unit)
+        both = Image.new("RGB", (17 + _text_width(temp), 16), (0, 0, 0))
+        both.paste(icon, (0, 0))
+        _draw_text(ImageDraw.Draw(both), 17, 4, temp, tint)
+        out += [both, _text_image(temp, tint, 2), _text_image(temp, tint, 1), _text_image(temp, tint), icon]
+        return out
+    if name in ("strip", "days", "sun"):
+        strip_cfg = cfg if name == "strip" else {**cfg, "strip": name}
+        out = []
+        for compact in (False, True):
+            img = Image.new("RGB", (64, 64), (0, 0, 0))
+            d = ImageDraw.Draw(img)
+            if compact:
+                _draw_compact_strip(d, forecast, now, strip_cfg, 64, 0, hour24)
+            elif strip_cfg.get("strip") == "sun":
+                _draw_sun_strip(d, forecast, now, 64, hour24)
+            else:
+                _draw_strip(img, d, forecast, now, strip_cfg, 64, True)
+            out.append(_tight(img))
+        # Narrower than the screen: fewer columns (each 16 LEDs), first the hours' temperatures alone.
+        slots = forecast.days if strip_cfg.get("strip") == "days" else hour_slots(forecast, now, strip_cfg)
+        for count in (3, 2, 1):
+            img = Image.new("RGB", (16 * count, 28), (0, 0, 0))
+            d = ImageDraw.Draw(img)
+            for k, slot in enumerate(slots[:count]):
+                x = 16 * k
+                _draw_small(d, x + (16 - _small_width(slot.label)) // 2, 0, slot.label, DIM)
+                img.paste(_icon16(slot.condition, 0, now), (x, 6))
+                value = _deg(slot.temperature if slot.temperature is not None else slot.high)
+                _draw_small(d, x + (16 - _small_width(value)) // 2, 23, value,
+                            _temp_color(slot.temperature if slot.temperature is not None else slot.high,
+                                        forecast.now.temp_unit))
+            out.append(_tight(img))
+        return out
+    block = (page or {}).get("pages", {}).get(name)
+    if block is not None:  # a page's block: drawn in the box itself, its letters as big as fit
+        spec = (cfg.get("layout") or {}).get(name) or {}
+        block = {**block, "lines": spec.get("lines")}
+        out = []
+        for level in ((spec["size"],) if spec.get("size") else (3, 2, 1)):
+            img = Image.new("RGB", (w, h), (0, 0, 0))
+            _draw_page(img, block, now, cfg, w, 0, color, level, h)
+            out.append(img)
+        return out
+    return []
+
+
+def _boxed(name: str, forecast: Forecast, now: datetime, cfg: dict, size: int, label: str | None,
+           second: int | None, phase: int, page: dict | None, spec: dict, color: tuple) -> Image.Image:
+    """The part drawn in its box: the richest form that fits, aligned in it (centred by default)."""
+    x, y, w, h = (max(0, min(size, int(v))) for v in spec["box"])
+    w, h = max(1, min(w, size - x)), max(1, min(h, size - y))
+    out = Image.new("RGB", (size, size), (0, 0, 0))
+    choices = [c for c in _box_choices(name, forecast, now, cfg, label, second, phase, page, color, w, h) if c]
+    if not choices:
+        return out
+    fitting = [c for c in choices if c.width <= w and c.height <= h]
+    shown = fitting[0] if fitting else choices[-1].crop((0, 0, min(w, choices[-1].width), min(h, choices[-1].height)))
+    align = spec.get("align") or "center"
+    left = 0 if align == "left" else w - shown.width if align == "right" else (w - shown.width) // 2
+    out.paste(shown, (x + left, y + (h - shown.height) // 2))
+    return out
 
 
 def _grown(mask: Image.Image) -> Image.Image:
@@ -1119,7 +1282,7 @@ def _draw_today(img: Image.Image, forecast: Forecast, y: int, size: int, phase: 
         if today.low is not None:
             _draw_text(d, x0, y + 25, f"↓{_num(today.low)}", PAL["lo"])
         return
-    img.paste(_icon16(today.condition, phase, when), (0, y))
+    img.paste(_icon16(night_condition(today.condition, forecast, when or local_now()), phase, when), (0, y))
     if today.temperature is not None:
         _draw_text(d, 18, y + 1, _deg(today.temperature), _temp_color(today.temperature, today.temp_unit))
     if rain := _rain_text(forecast, drop):
@@ -1811,17 +1974,54 @@ def _wrap_small(text: str, width: int) -> list[str]:
     return pages_mod.wrap(_small_text(text).strip(), width, _small_width)
 
 
+def _page_line(page: dict, now: datetime, cfg: dict) -> str | None:
+    """A page's text on one line (for a ticker), or None for those that are not text."""
+    kind = page["kind"]
+    if kind in pages_mod.TEXT_KINDS and kind != "word":
+        _header, text, author = pages_mod.text_of_hour(kind, now)
+        return f"{text} {author}".strip() if author else text
+    if kind == "word":
+        word, meaning = pages_mod.word_of_day(now)
+        return f"{word} : {meaning}"
+    if kind == "saint":
+        return f"{cfg.get('saint_title', 'BONNE FÊTE')} {', '.join(page['names'])}"
+    if kind == "world_days":
+        return " · ".join(re.sub(r"^\W*", "", item) for item in page["items"])
+    if kind == "notes":
+        return " · ".join(page["items"])
+    if kind == "birthdays":
+        return "JOYEUX ANNIV " + ", ".join(f"{n} {a}".strip() for n, a in page["people"])
+    if kind == "countdown":
+        said = countdown_text(page.get("date"), now)
+        title = page.get("title") or ("LE WEEK-END" if page.get("date") == "weekend" else "")
+        return None if said is None else (f"C'EST {title or 'AUJOURD HUI'} !" if said[1] else f"{said[0]} AVANT {title}".strip())
+    return None
+
+
 def _draw_page(img: Image.Image, page: dict, now: datetime, cfg: dict, size: int, top: int, color: tuple,
-               level: int = 2) -> None:
-    """A page under the time: ``top`` is its first row. ``level`` 1: compact (no heading, small
-    pictures), 2: as usual, 3: big letters."""
+               level: int = 2, bottom: int | None = None) -> None:
+    """A page under the time: ``top`` is its first row, ``bottom`` its last (the screen's by default).
+    ``level`` 1: compact (no heading, small pictures), 2: as usual, 3: big letters. ``page["lines"]``
+    « one »: its text on one line, scrolling from right to left."""
     d = ImageDraw.Draw(img)
     kind = page["kind"]
-    bottom = size
+    bottom = bottom or size
+    line = _page_line(page, now, cfg) if page.get("lines") == "one" else None
+    if line:
+        text = _small_text(line).strip()
+        big = level >= 2 and bottom - top >= 8
+        height = 7 if big else 5
+        strip = Image.new("RGB", (max(1, _text_width(text) if big else _small_width(text)), height), (0, 0, 0))
+        (_draw_text if big else _draw_small)(ImageDraw.Draw(strip), 0, 0, text, NAME_COLOR)
+        t = now.hour * 3600 + now.minute * 60 + now.second
+        shown = _ticker(strip, size, t, _speed(cfg))
+        y = top + max(0, (bottom - top - height) // 2)
+        img.paste(shown, (0, y), shown.convert("L").point(lambda v: 255 if v else 0))
+        return
     if kind == "special":
         _draw_special(img, page["special"], top, size, level)
     elif kind == "agenda":
-        _draw_agenda(d, page["items"], page.get("style", "list"), now, cfg, size, top, color, level, img)
+        _draw_agenda(d, page["items"], page.get("style", "list"), now, cfg, size, top, color, level, img, bottom)
     elif kind == "word":  # the word in gold, big if it fits, then what it means
         word, meaning = pages_mod.word_of_day(now)
         word, meaning = _small_text(word).strip(), _small_text(meaning).strip()
@@ -1989,6 +2189,27 @@ def _draw_page(img: Image.Image, page: dict, now: datetime, cfg: dict, size: int
                         color if max(color) > 1 else AGENDA_COLORS[0])  # not black: no outline here
 
 
+TICKER_GAP = 16  # LEDs between the end of a scrolling text and its start coming back
+
+
+def _ticker(strip: Image.Image, room: int, t: int, speed: int) -> Image.Image:
+    """``strip`` seen through ``room`` LEDs at second ``t``: whole if it fits, else scrolling from
+    right to left (its start comes back after its end)."""
+    if strip.width <= room:
+        return strip
+    period = strip.width + TICKER_GAP
+    shift = (t * speed) % period
+    out = Image.new("RGB", (room, strip.height), (0, 0, 0))
+    out.paste(strip, (-shift, 0))
+    out.paste(strip, (period - shift, 0))
+    return out
+
+
+def _ticker_time(width: int, room: int, speed: int) -> int:
+    """Seconds for a text to scroll through once (0 when it fits)."""
+    return 0 if width <= room else -(-(width + TICKER_GAP) // speed)
+
+
 def _bounce(overflow: int, t: int, speed: int = 6, hold: int = 2) -> int:
     """How far a text ``overflow`` LEDs too wide is shifted at second ``t``: still a moment at its
     start, sliding left, still at its end, sliding back (to read it all)."""
@@ -2027,8 +2248,9 @@ def _slide(overflow: int, t: int, speed: int = 10) -> int:
 
 
 def _draw_agenda(d: ImageDraw.ImageDraw, items: list, style: str, now: datetime, cfg: dict, size: int, top: int,
-                 color: tuple, level: int = 2, img: Image.Image | None = None) -> None:
+                 color: tuple, level: int = 2, img: Image.Image | None = None, bottom: int | None = None) -> None:
     hour24 = cfg.get("hour24", True)
+    bottom = bottom or size
     day = f"{pages_mod.ascii_upper(('LU', 'MA', 'ME', 'JE', 'VE', 'SA', 'DI')[now.weekday()])} {now.day}"
     heading = _small_text(cfg.get("agenda_title", "AGENDA")).strip()
     if heading:
@@ -2093,11 +2315,11 @@ def _draw_agenda(d: ImageDraw.ImageDraw, items: list, style: str, now: datetime,
         width = _text_width(title) if big else _small_width(title)
         x = _small_width(when) + 4 if when else 1
         rows.append((when, tint, title, width, x, past))
-    over = [max(0, width - (size - x)) for _w, _t, _ti, width, x, _p in rows]
+    # More than two: each pair stays until its titles have scrolled through once.
     first, local_t = 0, t
-    if len(rows) > AGENDA_ROWS:  # each pair stays until its titles have slid through
-        stays = [max(SLIDE_SECONDS, *(_slide_time(over[(i + k) % len(rows)], speed) for k in range(AGENDA_ROWS)))
-                 for i in range(len(rows))]
+    if len(rows) > AGENDA_ROWS:
+        stays = [max(SLIDE_SECONDS, *(_ticker_time(rows[(i + k) % len(rows)][3], size - rows[(i + k) % len(rows)][4], speed)
+                                      for k in range(AGENDA_ROWS))) for i in range(len(rows))]
         local_t = t % sum(stays)
         while local_t >= stays[first]:
             local_t -= stays[first]
@@ -2105,15 +2327,14 @@ def _draw_agenda(d: ImageDraw.ImageDraw, items: list, style: str, now: datetime,
     for k in range(min(AGENDA_ROWS, len(rows))):
         n = (first + k) % len(rows)
         when, tint, title, width, x, past = rows[n]
-        if y + height > size:
+        if y + height > bottom:
             break
         if when:
             _draw_small(d, 1, y + (height - 5) // 2, when, tint)
         room = size - x
         strip = Image.new("RGB", (max(1, width), height), (0, 0, 0))
         (_draw_text if big else _draw_small)(ImageDraw.Draw(strip), 0, 0, title, DIM if past else NAME_COLOR)
-        shift = _slide(over[n], local_t, speed) if len(rows) > AGENDA_ROWS else _bounce(over[n], t, speed, SLIDE_HOLD)
-        shown_part = strip.crop((shift, 0, shift + room, height))
+        shown_part = _ticker(strip, room, local_t if len(rows) > AGENDA_ROWS else t, speed)
         if img is not None:
             img.paste(shown_part, (x, y), shown_part.convert("L").point(lambda v: 255 if v else 0))
         if past:  # over: struck through
@@ -2123,7 +2344,7 @@ def _draw_agenda(d: ImageDraw.ImageDraw, items: list, style: str, now: datetime,
         for k in range(len(rows)):
             dot = size - 2 - 2 * (len(rows) - 1 - k)
             if dot >= 0:
-                d.point((dot, size - 1), fill=NAME_COLOR if k == first else DIM)
+                d.point((dot, bottom - 1), fill=NAME_COLOR if k == first else DIM)
 
 
 def _draw_special(img: Image.Image, special, top: int, size: int, level: int = 2) -> None:
