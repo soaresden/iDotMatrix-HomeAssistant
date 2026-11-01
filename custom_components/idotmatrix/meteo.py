@@ -1611,12 +1611,15 @@ class WeatherService:
             return state.attributes.get("friendly_name") or state.entity_id
 
         config = self.hass.config
+        # The phone app's states only hold its calendars: no Home Assistant weather or home.
+        home_assistant = getattr(states, "home_assistant", True)
         return {
-            "home_assistant": True,
+            "home_assistant": home_assistant,
             "entities": [{"entity_id": s.entity_id, "name": name(s)} for s in states.async_all("weather")],
             "zones": [{"entity_id": s.entity_id, "name": name(s)} for s in states.async_all("zone")
                       if s.attributes.get("latitude") is not None],
-            "home": {"name": getattr(config, "location_name", None) or "Maison", "entity_id": self.default_entity()},
+            "home": {"name": getattr(config, "location_name", None) or "Maison", "entity_id": self.default_entity()}
+            if home_assistant else None,
             "calendars": [{"entity_id": s.entity_id, "name": name(s)} for s in states.async_all("calendar")],
         }
 
