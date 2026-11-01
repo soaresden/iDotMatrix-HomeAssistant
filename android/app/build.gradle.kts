@@ -12,8 +12,8 @@ android {
         applicationId = "org.idotmatrix.pixelmeteo"
         minSdk = 24
         targetSdk = 35
-        versionCode = 19
-        versionName = "0.18"
+        versionCode = 20
+        versionName = "1.0"
         // Phones (arm64) and the emulator (x86_64): Pillow is built for these.
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
@@ -25,15 +25,32 @@ android {
     kotlinOptions { jvmTarget = "17" }
 }
 
-// The Studio's weather module, as it is in the integration: copied at build time.
-val meteoPython = layout.buildDirectory.dir("generated/meteo")
-val copyMeteo by tasks.registering(Copy::class) {
-    from("../../custom_components/idotmatrix") { include("meteo.py", "weather.py", "emoji.py", "pages.py", "texts_fr.json") }
-    into(meteoPython.map { it.dir("idm") })
-    doLast { meteoPython.get().file("idm/__init__.py").asFile.writeText("") }
+// The Studio as on the PC (tools/build_pixel_studio_exe.ps1), copied at build time:
+// idmcore, the integration's Studio modules (with the PC's coordinator), and desktop,
+// the PC app's server with its stand-in for Home Assistant.
+val studioPython = layout.buildDirectory.dir("generated/studio")
+val copyStudio by tasks.registering(Copy::class) {
+    val integration = "../../custom_components/idotmatrix"
+    into(studioPython)
+    from(integration) {
+        include("studio.py", "journal.py", "routines.py", "schedule.py", "media.py", "weather.py", "meteo.py",
+            "emoji.py", "pages.py", "preview.py", "const.py", "texts_fr.json", "client/**", "www/idotmatrix-studio.js")
+        exclude("**/__pycache__/**")
+        into("idmcore")
+    }
+    from("../../desktop/overrides/coordinator.py") { into("idmcore") }
+    from("../../desktop") {
+        include("pixel_studio.py", "index.html", "homeassistant/**")
+        exclude("**/__pycache__/**")
+        into("desktop")
+    }
+    doLast {
+        studioPython.get().file("idmcore/__init__.py").asFile.writeText("")
+        studioPython.get().file("desktop/__init__.py").asFile.writeText("")
+    }
 }
 tasks.configureEach {
-    if (name != copyMeteo.name && name.contains("Python")) dependsOn(copyMeteo)
+    if (name != copyStudio.name && name.contains("Python")) dependsOn(copyStudio)
 }
 
 chaquopy {
@@ -44,10 +61,14 @@ chaquopy {
         pip {
             install("pillow")
             install("voluptuous")
+            install("aiohttp")
+            install("cryptography")
         }
+        // Read as files by the server (its page, the Studio's panel, the texts).
+        extractPackages("idmcore", "desktop")
     }
     sourceSets {
-        getByName("main") { srcDir(meteoPython) }
+        getByName("main") { srcDir(studioPython) }
     }
 }
 

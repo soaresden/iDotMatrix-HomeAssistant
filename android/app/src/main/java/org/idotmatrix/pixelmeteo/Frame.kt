@@ -42,7 +42,7 @@ class Frame(private val context: Context, val address: String) {
         const val DONE = 3
 
         /** Displays nearby (name starting with IDM-), for [seconds]. */
-        suspend fun scan(context: Context, seconds: Long = 6): List<Pair<String, String>> {
+        suspend fun scan(context: Context, seconds: Double = 6.0): List<Pair<String, String>> {
             val adapter = (context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
                 ?: throw FrameError("Pas de Bluetooth sur ce téléphone")
             if (!adapter.isEnabled) throw FrameError("Active le Bluetooth")
@@ -56,7 +56,7 @@ class Frame(private val context: Context, val address: String) {
             }
             scanner.startScan(callback)
             try {
-                delay(seconds * 1000)
+                delay((seconds * 1000).toLong())
             } finally {
                 scanner.stopScan(callback)
             }
@@ -221,6 +221,24 @@ class Frame(private val context: Context, val address: String) {
             writeOnce(data.copyOfRange(i, minOf(data.size, i + writeSize)), response)
             i += writeSize
         }
+    }
+
+    /** The size of one Bluetooth write (the MTU agreed, less 3). */
+    val writeLength get() = writeSize
+
+    /** Bytes as they come, in writes of [writeLength] (the Studio's client cuts its own). */
+    suspend fun writeRaw(data: ByteArray, response: Boolean) = send(data, response)
+
+    /** The display's next answer on the notify characteristic, or null after [ms]. */
+    suspend fun nextReply(ms: Long): ByteArray? = withTimeoutOrNull(ms) { replies.receive() }
+
+    fun dropReplies() {
+        while (replies.tryReceive().isSuccess) { /* old answers */ }
+    }
+
+    /** Android's cached services forgotten (found again at the next connection). */
+    fun forgetServices() {
+        gatt?.let { refreshCache(it) }
     }
 
     /** A command (brightness, reset...), acknowledged write. */

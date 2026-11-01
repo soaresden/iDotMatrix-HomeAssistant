@@ -107,14 +107,19 @@ object Calendars {
 
     /** Today's events of the calendars ``ids``: [{title, begin, end, all_day}] (times in ms). */
     fun today(context: Context, ids: List<String>): JSONArray {
-        val out = JSONArray()
-        if (ids.isEmpty() || !allowed(context)) return out
         val start = Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
         }.timeInMillis
+        return between(context, ids, start, start + 24L * 3600 * 1000 - 1)
+    }
+
+    /** The events of the calendars ``ids`` from [start] to [end] (ms): [{title, begin, end, all_day}]. */
+    fun between(context: Context, ids: List<String>, start: Long, end: Long): JSONArray {
+        val out = JSONArray()
+        if (ids.isEmpty() || !allowed(context)) return out
         val uri = CalendarContract.Instances.CONTENT_URI.buildUpon().also {
             ContentUris.appendId(it, start)
-            ContentUris.appendId(it, start + 24L * 3600 * 1000 - 1)
+            ContentUris.appendId(it, end)
         }.build()
         val projection = arrayOf(
             CalendarContract.Instances.TITLE, CalendarContract.Instances.BEGIN, CalendarContract.Instances.END,

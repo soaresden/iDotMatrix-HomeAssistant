@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Android: Pixel Météo becomes **Pixel Studio**, the whole Studio on the phone (the PC app's server and the integration's modules, run by the app's service; Bluetooth through Android's), Météo a tab of it. The phone's calendars and contacts' birthdays are offered to the agenda as calendars; the notification says what the display shows, with « Éteindre / Allumer l'écran »; Share → Pixel Studio adds a note to the weather view showing. It installs over Pixel Météo and takes its display and view (a « Météo » routine, started). No video conversion and no store on the phone.
 - Météo: the agenda's scrolling speed is chosen (slow, normal, fast, faster; 5 to 24 LEDs a second), shorter still moments at each end; « normal » is faster than before.
 - Météo: a screen can have several bottom strips of different kinds: « En bas » (the view's kind) with « Prochains jours » and « Lever / coucher », each a part of its own (moved, sized).
 - Météo agenda: two lines at a time; a title too long slides from right to left to be read; more appointments go up one by one, each pair staying until its titles have slid through (dots say which).

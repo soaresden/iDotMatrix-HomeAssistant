@@ -24,8 +24,9 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
-        android:label="Pixel Météo"
-        android:icon="@android:drawable/ic_menu_day"
+        android:label="Pixel Studio"
+        android:icon="@android:drawable/ic_menu_gallery"
+        android:usesCleartextTraffic="true"
         android:allowBackup="false"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
         <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTask">
@@ -33,7 +34,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Share → Pixel Météo: a text (a Keep note...) becomes a note on the display. -->
+            <!-- Share → Pixel Studio: a text (a Keep note...) becomes a note on the weather view. -->
             <intent-filter android:label="Note sur le cadre">
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -47,7 +48,7 @@
             </intent-filter>
         </receiver>
         <service
-            android:name=".MeteoService"
+            android:name=".StudioService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
     </application>
