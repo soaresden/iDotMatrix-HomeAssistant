@@ -3,7 +3,10 @@ in Home Assistant's own format (so a Studio state can move between the two)."""
 from __future__ import annotations
 
 import json
+import logging
 import os
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class Store:
@@ -22,6 +25,12 @@ class Store:
                 with open(self.path, encoding="utf-8") as handle:
                     return json.load(handle).get("data")
             except FileNotFoundError:
+                return None
+            except ValueError:
+                # Cut short (the phone killed the app as it wrote): set aside, as Home Assistant does,
+                # rather than keep the Studio from starting.
+                os.replace(self.path, f"{self.path}.corrupt")
+                _LOGGER.warning("%s unreadable, set aside as %s.corrupt", self.path, self.path)
                 return None
 
         return await self.hass.async_add_executor_job(read)
@@ -52,4 +61,6 @@ class Store:
         temp = f"{self.path}.tmp"
         with open(temp, "w", encoding="utf-8") as handle:
             json.dump({"version": self.version, "minor_version": 1, "key": self.key, "data": data}, handle)
+            handle.flush()
+            os.fsync(handle.fileno())  # on disk before it replaces the old file, even if the power goes
         os.replace(temp, self.path)

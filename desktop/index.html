@@ -223,7 +223,7 @@ $("scan").onclick = async () => {
     if (devices.length && (!$("devices").value || !state.display)) $("devices").value = devices[0].address;
     say(devices.length ? `${devices.length} cadre(s) trouvé(s) : choisis le tien et sa taille, puis Connecter.`
       : state.connected ? "Aucun autre cadre (un cadre connecté n'apparaît plus dans la recherche)."
-      : "Aucun cadre trouvé : allume-le, approche-le du PC et ferme l'appli iDotMatrix du téléphone.",
+      : "Aucun cadre trouvé : allume-le, rapproche-le et ferme l'appli iDotMatrix du téléphone.",
       !devices.length && !state.connected);
   } catch (err) {
     say(`Recherche impossible : ${err.message} (le Bluetooth du PC est-il activé ?)`, true);

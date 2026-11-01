@@ -27,6 +27,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+from aiohttp import web
+
 DESKTOP = Path(__file__).resolve().parent
 INTEGRATION = DESKTOP.parent / "custom_components" / "idotmatrix"
 # Built as an .exe (PyInstaller): idmcore is then a real bundled package.
@@ -34,6 +36,9 @@ FROZEN = getattr(sys, "frozen", False)
 DEFAULT_PORT = 8765
 SIZES = (64, 32, 16)
 ADMIN = SimpleNamespace(is_admin=True, id="desktop", name="Pixel Studio")
+# Made here: aiohttp names a key after the module making it, which it finds only at import
+# (not from start() run in a thread of its own, as on the phone).
+ORIGINS = web.AppKey("origins", set)
 
 _LOGGER = logging.getLogger("pixel_studio")
 
@@ -287,7 +292,7 @@ def dispatch(hass, connection: Connection, msg: dict) -> None:
 
 async def start(port: int = DEFAULT_PORT, data_dir: Path | None = None, media_dir: Path | None = None):
     """Start the server; returns (runner, url, hass)."""
-    from aiohttp import WSMsgType, web
+    from aiohttp import WSMsgType
 
     studio_module = load_integration()
     from homeassistant.components import websocket_api
@@ -306,14 +311,13 @@ async def start(port: int = DEFAULT_PORT, data_dir: Path | None = None, media_di
         # Another web page open in the browser must not drive the display or
         # write to the gallery: browsers name the page a request comes from.
         origin = request.headers.get("Origin")
-        if origin and origin not in request.app[origins_key]:
+        if origin and origin not in request.app[ORIGINS]:
             return web.json_response({"message": "Origine refusée"}, status=403)
         return await handler(request)
 
-    origins_key = web.AppKey("origins", set)
     app = web.Application(middlewares=[same_origin_only], client_max_size=256 * 1024 * 1024)
     app[KEY_HASS] = hass
-    app[origins_key] = set()
+    app[ORIGINS] = set()
 
     def register_view(view) -> None:
         for method in ("get", "post", "put", "delete"):
@@ -384,7 +388,7 @@ async def start(port: int = DEFAULT_PORT, data_dir: Path | None = None, media_di
         site = web.TCPSite(runner, "127.0.0.1", 0)
         await site.start()
     port = site._server.sockets[0].getsockname()[1]
-    app[origins_key].update({f"http://127.0.0.1:{port}", f"http://localhost:{port}"})
+    app[ORIGINS].update({f"http://127.0.0.1:{port}", f"http://localhost:{port}"})
     if desktop.coordinator is not None:  # the last display: connect in the background
         async def reconnect():
             try:

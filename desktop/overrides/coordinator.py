@@ -89,7 +89,7 @@ class IDotMatrixCoordinator:
         except (BleakError, ConnectionError, OSError, asyncio.TimeoutError) as err:
             _LOGGER.warning("Connection to %s failed: %s", self.conn.address, err)
             raise HomeAssistantError(
-                f"{self.entry.title} ne répond pas : allume-le, approche-le du PC et ferme l'appli iDotMatrix "
+                f"{self.entry.title} ne répond pas : allume-le, rapproche-le et ferme l'appli iDotMatrix "
                 "du téléphone (le cadre n'accepte qu'un appareil à la fois)."
             ) from err
         finally:
