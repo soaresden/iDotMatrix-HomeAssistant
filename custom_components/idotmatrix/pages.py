@@ -176,11 +176,43 @@ def events_on(events: list[Event], day: date, local: tzinfo | None = None) -> li
 
 
 def names_of(occurrences: list[Occurrence]) -> list[str]:
-    """« Amandine, Hermine » -> ["Amandine", "Hermine"] (the saints calendar's way)."""
+    """« Amandine, Hermine » -> ["Amandine", "Hermine"] (the saints calendar's way), a name's
+    feminine with it: « Gwenaël, Gwenaelle, Hubert » -> ["Gwenaël(le)", "Hubert"]."""
     names = []
     for occurrence in occurrences:
         names += [n.strip() for n in occurrence.summary.split(",") if n.strip()]
-    return names
+    return merge_variants(names)
+
+
+# A name and its feminine: Pascal(e), Lucien(ne), Gwenaël(le). Longer endings are other names
+# (Clément, Clémentine), and so are other spellings (Caren, Karen).
+FEMININE_ENDINGS = ("e", "le", "ne")
+
+
+def _folded(name: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFD", name.lower()) if not unicodedata.combining(c))
+
+
+def merge_variants(names: list[str]) -> list[str]:
+    """The same name written twice (Raïssa, Raissa) once, and a name's feminine with it, in brackets."""
+    folded = [_folded(n) for n in names]
+    base_of: dict[int, int] = {}
+    for i, name in enumerate(folded):
+        bases = [j for j, other in enumerate(folded) if j != i and name.startswith(other)
+                 and (name[len(other):] in FEMININE_ENDINGS or (not name[len(other):] and j < i))]
+        if bases:  # the closest: Liliane is Lilian's, not Lilia's
+            base_of[i] = max(bases, key=lambda j: len(folded[j]))
+    out, endings = [], {}
+    for i, name in enumerate(names):
+        if i in base_of:
+            base = base_of[i]
+            while base in base_of:  # Michele and Michelle: both Michel's
+                base = base_of[base]
+            ending = name[len(name) - (len(folded[i]) - len(folded[base])):] if len(folded[i]) > len(folded[base]) else ""
+            endings.setdefault(base, ending)
+        else:
+            out.append(i)
+    return [f"{names[i]}({endings[i]})" if endings.get(i) else names[i] for i in out]
 
 
 # ---------------------------------------------------------------------------
@@ -337,7 +369,15 @@ class Extras:
     birthdays: list[dict] | None = None  # the phone's contacts': [{name, date}]
 
 
-WORLD_DAYS_SHOWN = 2
+SHOWN_BY_DEFAULT = 2  # today's saints and world days shown until others are picked in the app
+
+
+def _shown(items: list[str], picked: list[str] | None) -> tuple[list[str], bool]:
+    """The items picked (else the first ones; a pick none of today's matches counts as none),
+    and whether some are left out."""
+    shown = [i for i in items if i in picked] if picked else []
+    shown = shown or items[:SHOWN_BY_DEFAULT]
+    return shown, len(shown) < len(items)
 
 
 def extra_pages(cfg: dict, extras: Extras | None, now: datetime) -> list[dict]:
@@ -355,16 +395,16 @@ def extra_pages(cfg: dict, extras: Extras | None, now: datetime) -> list[dict]:
             pages.append({"kind": "birthdays", "people": people})
     if cfg.get("agenda") and extras.agenda is not None:
         pages.append({"kind": "agenda", "items": extras.agenda, "style": cfg.get("agenda_style", "list")})
-    # Today's saints and world days: the ones picked in the app for today, else all the saints and
-    # the first world days (two at most).
+    # Today's saints and world days: the ones picked in the app for today, else the first two;
+    # « more » when some are left out (the display says « ... »).
     picked = cfg.get("pick") or {}
     picked = picked if picked.get("date") == now.date().isoformat() else {}
-    saints = [n for n in extras.saints or [] if n in picked["saints"]] if picked.get("saints") else extras.saints
-    days = [d for d in extras.world_days or [] if d in picked["world_days"]] if picked.get("world_days") else extras.world_days
+    saints, more_saints = _shown(extras.saints or [], picked.get("saints"))
+    days, more_days = _shown(extras.world_days or [], picked.get("world_days"))
     if cfg.get("saints") and saints:
-        pages.append({"kind": "saint", "names": saints})
+        pages.append({"kind": "saint", "names": saints, "more": more_saints})
     if cfg.get("world_days") and days:
-        pages.append({"kind": "world_days", "items": days[:WORLD_DAYS_SHOWN]})
+        pages.append({"kind": "world_days", "items": days, "more": more_days})
     for kind in TEXT_KINDS:
         if cfg.get(kind):
             pages.append({"kind": kind})

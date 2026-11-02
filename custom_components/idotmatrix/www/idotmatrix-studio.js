@@ -6399,7 +6399,7 @@ class IDotMatrixStudio extends HTMLElement {
       <button class="icon" data-edel title="Retirer">🗑</button></div>`).join("");
   }
 
-  /** Today's saints and world days as loaded (tick those to show; world days 2 at most), and what the agenda reads. */
+  /** Today's saints and world days as loaded (tick those to show: the first two until others are), and what the agenda reads. */
   _drawWeatherToday(today) {
     const main = this._main();
     // Each iCal link: read, or why not (a « public » Google address of a private calendar: 404).
@@ -6425,21 +6425,19 @@ class IDotMatrixStudio extends HTMLElement {
       parts.push(`<div class="row small"><b>Agenda lu aujourd'hui</b> ${today.agenda.length
         ? today.agenda.map((e) => `<span>📅 ${esc(e)}</span>`).join(" ") : `<span class="muted">aucun rendez-vous</span>`}</div>`);
     }
-    if (today.saints.length) {
-      parts.push(`<div class="row small"><b>Saints</b> ${today.saints.map((n) => box("saints", n, !pick?.saints?.length || pick.saints.includes(n))).join("")}</div>`);
-    }
-    if (today.world_days.length) {
-      parts.push(`<div class="row small"><b>Journées (2 au plus)</b> ${today.world_days.map((d, i) => box("world_days", d,
-        pick?.world_days?.length ? pick.world_days.includes(d) : i < 2)).join("")}</div>`);
+    // The day's pick, if one of them still is today's; else the first two (« ... » on the display for the rest).
+    const ticked = (kind, list) => {
+      const chosen = (pick?.[kind] || []).filter((x) => list.includes(x));
+      return (x, i) => (chosen.length ? chosen.includes(x) : i < 2);
+    };
+    for (const [kind, title] of [["saints", "Saints"], ["world_days", "Journées"]]) {
+      const list = today[kind];
+      if (!list.length) continue;
+      const on = ticked(kind, list);
+      parts.push(`<div class="row small"><b>${title}</b> ${list.map((x, i) => box(kind, x, on(x, i))).join("")}${list.length > 2
+        ? '<span class="muted">« ... » sur le cadre pour ceux pas cochés</span>' : ""}</div>`);
     }
     main.querySelector("#wtoday").innerHTML = parts.join("");
-    this._limitWorldDays();
-  }
-
-  _limitWorldDays() {
-    const boxes = [...this._main().querySelectorAll('[data-today="world_days"]')];
-    const full = boxes.filter((b) => b.checked).length >= 2;
-    boxes.forEach((b) => { b.disabled = full && !b.checked; });
   }
 
   /** Notes: just text. */
@@ -6654,7 +6652,6 @@ class IDotMatrixStudio extends HTMLElement {
       }
       if (changed && res.today) {
         this._drawWeatherToday(res.today);
-        this._limitWorldDays();
       }
       if (changed && res.pages) {
         main.querySelector("#wpagesToday").textContent = res.pages.length

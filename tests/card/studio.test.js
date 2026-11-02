@@ -1291,24 +1291,29 @@ test("Météo: screens numbered above the preview, « + » adds one empty or rea
   assert.equal(last().page, null);
 });
 
-test("Météo: today's saints and world days ticked (2 at most), the agenda read listed, appointments typed in", async () => {
+test("Météo: today's saints and world days ticked (the first two until others are), the agenda read listed, appointments typed in", async () => {
   const { $, calls } = await studio({
     "idotmatrix/studio/routines": { routines: [], status: {} },
     "idotmatrix/studio/weather_sources": WEATHER_SOURCES,
     "idotmatrix/studio/weather_preview": { ...PREVIEW, boxes: { clock: [6, 0, 58, 14], agenda: [0, 16, 63, 40] },
-      today: { date: "2026-11-03", saints: ["Hubert", "Sylvie"], world_days: ["A", "B", "C"], agenda: ["09:00 Dentiste"], calendars: 1 } },
+      today: { date: "2026-11-03", saints: ["Hubert", "Sylvie", "Martin"], world_days: ["A", "B", "C"], agenda: ["09:00 Dentiste"], calendars: 1 } },
   });
   $('nav button[data-tab="weather"]').click();
   await wait(50);
   const last = () => calls.findLast((c) => c.type === "idotmatrix/studio/weather_preview").weather;
   assert.match($("#wtoday").textContent, /09:00 Dentiste/);
   const days = () => [...document.body.querySelector("idotmatrix-studio").shadowRoot.querySelectorAll('[data-today="world_days"]')];
+  const saints = () => [...document.body.querySelector("idotmatrix-studio").shadowRoot.querySelectorAll('[data-today="saints"]')];
+  assert.deepEqual(saints().map((b) => b.checked), [true, true, false]);  // the first two
   assert.deepEqual(days().map((b) => b.checked), [true, true, false]);
-  assert.ok(days()[2].disabled);  // two already: the third waits
+  assert.ok(!days()[2].disabled);  // no cap: « ... » on the display says there are more
+  assert.match($("#wtoday").textContent, /« \.\.\. » sur le cadre/);
   days()[0].checked = false;
   change(days()[0]);
+  days()[2].checked = true;
+  change(days()[2]);
   await wait(50);
-  assert.deepEqual(last().pick, { date: "2026-11-03", saints: ["Hubert", "Sylvie"], world_days: ["B"] });
+  assert.deepEqual(last().pick, { date: "2026-11-03", saints: ["Hubert", "Sylvie"], world_days: ["B", "C"] });
   // The agenda picked: its options, an appointment typed in.
   $('#wzones [data-wzone=""]').click();
   $("#waddevent").click();
