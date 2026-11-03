@@ -78,7 +78,8 @@ def test_schema():
     assert SCHEDULE_SCHEMA({}) == {"enabled": False, "blocks": [], "gaps": "off"}
     with pytest.raises(vol.Invalid):
         SCHEDULE_SCHEMA({"gaps": "dim"})
-    for bad in ({"from": "7:00", "to": "08:00", "action": "off"}, {"from": "07:00", "to": "08:00", "action": "dim"}):
+    for bad in ({"from": "7:00", "to": "08:00", "action": "off"}, {"from": "07:00", "to": "08:00", "action": "dim"},
+                {"from": "07:00", "to": "08:00", "action": "off", "brightness": 101}):
         with pytest.raises(vol.Invalid):
             SCHEDULE_SCHEMA({"enabled": True, "blocks": [bad]})
 
@@ -171,3 +172,24 @@ async def test_disabled_schedule_does_nothing_and_wakes_a_dark_screen(monkeypatc
     assert coordinator._device_call.await_args.args[0].__name__ == "screenOn"
     assert not scheduler.screen_off
     assert scheduler.status["block"] is None
+
+
+async def test_a_block_sets_its_brightness_as_it_starts(monkeypatch):
+    clock = ["08:00"]
+    scheduler, runner, coordinator, _ = make_scheduler(monkeypatch, clock)
+    blocks = [{"from": "07:00", "to": "12:00", "action": "routine", "routine_id": "matin", "brightness": 20},
+              {"from": "12:00", "to": "18:00", "action": "routine", "routine_id": "jour"}]
+    scheduler.update({"enabled": True, "blocks": blocks})
+    await settle()
+    call = coordinator._device_call.await_args
+    assert call.args[0].__name__ == "setBrightness" and call.args[1] == 20
+    assert coordinator.text_settings["brightness"] == 51
+    runner.start.assert_called_once()
+
+    # A block without one leaves the brightness as it is.
+    coordinator._device_call.reset_mock()
+    clock[0] = "13:00"
+    scheduler._tick(None)
+    await settle()
+    coordinator._device_call.assert_not_awaited()
+    assert runner.start.call_args.args[0]["id"] == "jour"

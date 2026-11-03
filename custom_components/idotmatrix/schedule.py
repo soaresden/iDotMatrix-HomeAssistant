@@ -12,7 +12,9 @@ interrupt), then the first listed. A block may
 keep to some days of the week (``days``, 0 = Monday); one that crosses
 midnight belongs to the day it starts. A block from a time to the same time
 lasts all day; a routine switched off in the panel keeps its blocks with
-``enabled: false``, which do nothing until it is switched on again.
+``enabled: false``, which do nothing until it is switched on again. A
+routine block may set the brightness (``brightness``, 5-100 %) as it starts;
+without one, the brightness stays as it was.
 """
 from __future__ import annotations
 
@@ -44,6 +46,8 @@ BLOCK_SCHEMA = vol.Schema({
     vol.Optional("priority"): vol.All(int, vol.Range(min=0, max=2)),
     # Days of the week it runs (0 = Monday); none means every day.
     vol.Optional("days"): vol.Any(None, vol.All([vol.All(int, vol.Range(min=0, max=6))], vol.Length(max=7))),
+    # Brightness the block sets as it starts, in percent; none keeps the current one.
+    vol.Optional("brightness"): vol.Any(None, vol.All(int, vol.Range(min=5, max=100))),
 })
 
 SCHEDULE_SCHEMA = vol.Schema({
@@ -162,7 +166,7 @@ class Scheduler:
         blocks = self.schedule.get("blocks", [])
         index = block_at(blocks, datetime.now())
         block = blocks[index] if index is not None else (GAP_OFF if gap_off(self.schedule) else None)
-        key = (index, block["action"], block.get("routine_id")) if block else None
+        key = (index, block["action"], block.get("routine_id"), block.get("brightness")) if block else None
         if key == self._applied:
             return
         self._applied = key
@@ -175,10 +179,22 @@ class Scheduler:
         else:
             if self.screen_off:
                 await self._screen(True)
+            if block and block.get("brightness"):
+                await self._brightness(block["brightness"])
             routine = self._routines().get(block.get("routine_id") or "") if block else None
             if routine and self._runner.active_id != routine["id"]:
                 self._runner.start(routine)
         self._notify(self.status)
+
+    async def _brightness(self, percent: int) -> None:
+        try:
+            coordinator = self._coordinator()
+            await coordinator._device_call(Common().setBrightness, percent)
+        except (HomeAssistantError, OSError) as err:
+            _LOGGER.warning("Schedule: could not set the brightness to %s %%: %s", percent, err)
+            return
+        coordinator.text_settings["brightness"] = round(percent * 255 / 100)
+        coordinator.async_update_listeners()
 
     async def _screen(self, on: bool) -> None:
         try:

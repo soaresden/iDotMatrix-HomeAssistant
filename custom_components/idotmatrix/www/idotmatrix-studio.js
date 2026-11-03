@@ -87,6 +87,8 @@ const toMinutes = (hm) => { const [h, m] = hm.split(":").map(Number); return h *
 // Which schedule block wins an overlap, as on the server: highest priority,
 // then the shortest (an all-day routine is a background), then the first listed.
 const PRIORITIES = [[2, "⬆ haute"], [1, "normale"], [0, "⬇ basse"]];
+// Brightness a routine slot sets as it starts (none: left as it is).
+const SLOT_BRIGHTNESS = [5, 10, 20, 35, 50, 75, 100];
 const blockMinutes = (b) => ((toMinutes(b.to) - toMinutes(b.from) + 1440) % 1440) || 1440;
 const outranks = (a, i, b, j) => ((b.priority ?? 1) - (a.priority ?? 1)) || (blockMinutes(a) - blockMinutes(b)) || (i - j);
 const fromMinutes = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
@@ -5021,6 +5023,8 @@ class IDotMatrixStudio extends HTMLElement {
     } else if (key === "priority") {
       const priority = Number(ev.target.value);
       if (priority === 1) delete block.priority; else block.priority = priority;
+    } else if (key === "brightness") {
+      if (ev.target.value) block.brightness = Number(ev.target.value); else delete block.brightness;
     } else {
       return false;
     }
@@ -5063,6 +5067,9 @@ class IDotMatrixStudio extends HTMLElement {
         ${b.days?.length ? "" : `<span class="muted small">tous les jours</span>`}
         <select data-k="priority" class="small" title="Si des plages se chevauchent : la priorité la plus haute l'emporte, puis la plage la plus courte">
           ${PRIORITIES.map(([value, label]) => `<option value="${value}" ${(b.priority ?? 1) === value ? "selected" : ""}>${label}</option>`).join("")}</select>
+        ${b.action === "off" ? "" : `<select data-k="brightness" class="small" title="Luminosité réglée au début de la plage">
+          <option value="" ${b.brightness ? "" : "selected"}>☀ inchangée</option>
+          ${SLOT_BRIGHTNESS.map((v) => `<option value="${v}" ${b.brightness === v ? "selected" : ""}>☀ ${v} %</option>`).join("")}</select>`}
         <button class="icon" data-del title="Supprimer la plage">🗑</button></div>`;
   }
 
