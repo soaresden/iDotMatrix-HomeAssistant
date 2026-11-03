@@ -578,6 +578,7 @@ _SMALL = {
     "°": ("11", "11", "00", "00", "00"), "%": ("101", "001", "010", "100", "101"),
     "-": ("000", "000", "111", "000", "000"), "/": ("001", "001", "010", "100", "100"),
     ".": ("0", "0", "0", "0", "1"), "'": ("1", "1", "0", "0", "0"), ":": ("0", "1", "0", "1", "0"),
+    "(": ("01", "10", "10", "10", "01"), ")": ("10", "01", "01", "01", "10"),  # Gwenaël(le)
     " ": ("0", "0", "0", "0", "0"),
 }
 
@@ -1987,9 +1988,9 @@ def _page_line(page: dict, now: datetime, cfg: dict) -> str | None:
         word, meaning = pages_mod.word_of_day(now)
         return f"{word} : {meaning}"
     if kind == "saint":
-        return f"{cfg.get('saint_title', 'BONNE FÊTE')} {', '.join(page['names'])}"
+        return f"{cfg.get('saint_title', 'BONNE FÊTE')} {', '.join(page['names'])}" + (" ..." if page.get("more") else "")
     if kind == "world_days":
-        return " · ".join(re.sub(r"^\W*", "", item) for item in page["items"])
+        return " · ".join(re.sub(r"^\W*", "", item) for item in page["items"]) + (" · ..." if page.get("more") else "")
     if kind == "notes":
         return " · ".join(page["items"])
     if kind == "birthdays":
@@ -2122,7 +2123,8 @@ def _draw_page(img: Image.Image, page: dict, now: datetime, cfg: dict, size: int
                 (_draw_text if big else _draw_small)(d, (size - w) // 2, y, line, tint)
                 y += 9 if big else 6
     elif kind == "saint":
-        names = [_small_text(n).strip() for n in page["names"]]
+        # « ... »: more names today, picked in the app.
+        names = [_small_text(n).strip() for n in page["names"]] + (["..."] if page.get("more") else [])
         y = top + 1
         if level >= 2:
             title = _small_text(cfg.get("saint_title", "BONNE FÊTE")).strip()
@@ -2162,7 +2164,9 @@ def _draw_page(img: Image.Image, page: dict, now: datetime, cfg: dict, size: int
         texts = [_small_text(item[m.end():] if m else item).strip() for item, m in zip(page["items"], kinds)]
         heading = _small_text(cfg.get("world_days_title") or
                               (f"J. {kinds[0].group(1)}" if kinds and kinds[0] else "AUJOURD'HUI")).strip()
-        big, headed = _text_level(texts, size - 2, bottom - top - 1 - 2 * (len(texts) - 1), level, 7)
+        # « ... » on the last line when there are more today (picked in the app): kept free for it.
+        last = bottom - 6 if page.get("more") else bottom
+        big, headed = _text_level(texts, size - 2, last - top - 1 - 2 * (len(texts) - 1), level, 7)
         y = top + 1
         if headed:
             _draw_small(d, (size - _small_width(heading)) // 2, y, heading, DIM)
@@ -2170,9 +2174,11 @@ def _draw_page(img: Image.Image, page: dict, now: datetime, cfg: dict, size: int
         for n, text in enumerate(texts):
             tint = AGENDA_COLORS[n % len(AGENDA_COLORS)]
             if big:
-                y = _big_lines(d, y, text, tint, size, bottom) + 2
+                y = _big_lines(d, y, text, tint, size, last) + 2
             else:
-                y = _small_lines(d, 1, y, _wrap_small(text, size - 2), tint, bottom) + 2
+                y = _small_lines(d, 1, y, _wrap_small(text, size - 2), tint, last) + 2
+        if page.get("more"):
+            _draw_small(d, (size - _small_width("...")) // 2, min(y, last + 1), "...", DIM)
     else:
         header, text, author = pages_mod.text_of_hour(kind, now)
         text = _small_text(text).strip()

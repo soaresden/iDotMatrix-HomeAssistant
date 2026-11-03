@@ -249,8 +249,9 @@ def test_a_screen_can_name_its_city_its_own_way():
 def test_many_saints_take_turns_and_the_seconds_go_with_the_clock():
     forecast = meteo.Forecast("Lyon", WeatherData("sunny", 12), fetched=1.0)
     now = datetime(2026, 11, 3, 12, 0, 0, tzinfo=TZ)
-    cfg = meteo.WEATHER_SCHEMA({"screens": [{"parts": {"clock": {}, "saint": {}}}]})
     names = ["Hubert", "Sylvie", "Martin", "Charles", "Léonard", "Malo", "Théodore"]
+    cfg = meteo.WEATHER_SCHEMA({"screens": [{"parts": {"clock": {}, "saint": {}}}],
+                                "pick": {"date": "2026-11-03", "saints": names}})  # all picked in the app
     turn = meteo.page_list([forecast], cfg, pages.Extras(saints=names), now)[0]
     slides = {meteo.render_meteo(forecast, now.replace(second=s), cfg, page=turn).crop((0, 24, 64, 64)).tobytes()
               for s in range(0, 9, 3)}
@@ -280,12 +281,52 @@ def test_texts_are_short_and_today_lists_are_picked_in_the_app():
     extras = pages.Extras(saints=["Hubert", "Sylvie", "Martin"], world_days=["A", "B", "C", "D"])
     base = {"saints": True, "world_days": True, "special_days": False}
     pages_of = lambda cfg: {p["kind"]: p for p in pages.extra_pages(cfg, extras, now)}  # noqa: E731
-    shown = pages_of(base)
-    assert shown["saint"]["names"] == ["Hubert", "Sylvie", "Martin"] and shown["world_days"]["items"] == ["A", "B"]
-    picked = pages_of({**base, "pick": {"date": "2026-11-03", "saints": ["Sylvie"], "world_days": ["D", "C"]}})
-    assert picked["saint"]["names"] == ["Sylvie"] and picked["world_days"]["items"] == ["C", "D"]
+    shown = pages_of(base)  # the first two, « more » for the rest
+    assert shown["saint"]["names"] == ["Hubert", "Sylvie"] and shown["saint"]["more"]
+    assert shown["world_days"]["items"] == ["A", "B"] and shown["world_days"]["more"]
+    picked = pages_of({**base, "pick": {"date": "2026-11-03", "saints": ["Sylvie"], "world_days": ["D", "C", "B", "A"]}})
+    assert picked["saint"]["names"] == ["Sylvie"] and picked["saint"]["more"]
+    assert picked["world_days"]["items"] == ["A", "B", "C", "D"] and not picked["world_days"]["more"]  # no cap
     stale = pages_of({**base, "pick": {"date": "2026-11-02", "saints": ["Sylvie"], "world_days": ["D"]}})
-    assert stale["saint"]["names"] == ["Hubert", "Sylvie", "Martin"]  # yesterday's pick: all again
+    assert stale["saint"]["names"] == ["Hubert", "Sylvie"]  # yesterday's pick: the first two again
+    gone = pages_of({**base, "pick": {"date": "2026-11-03", "saints": ["Gwenaël"]}})  # none of today's
+    assert gone["saint"]["names"] == ["Hubert", "Sylvie"]
+    two = pages.extra_pages(base, pages.Extras(saints=["Hubert", "Sylvie"]), now)[0]
+    assert two["names"] == ["Hubert", "Sylvie"] and not two["more"]
+
+
+def test_a_name_and_its_feminine_are_one():
+    merge = pages.merge_variants
+    assert merge(["Gwenaël", "Gwenaelle", "Hubert"]) == ["Gwenaël(le)", "Hubert"]
+    assert merge(["Caren", "Carine", "Ernest", "Ernie", "Karelle", "Karen", "Karine"]) == [
+        "Caren", "Carine", "Ernest", "Ernie", "Karelle", "Karen", "Karine"]  # other names, not variants
+    assert merge(["Pascal", "Pascale"]) == ["Pascal(e)"] and merge(["Lucien", "Lucienne"]) == ["Lucien(ne)"]
+    assert merge(["Michel", "Michele", "Michelle"]) == ["Michel(e)"]
+    assert merge(["Lilia", "Lilian", "Liliane"]) == ["Lilia", "Lilian(e)"]  # the closest name
+    assert merge(["Raïssa", "Raissa"]) == ["Raïssa"]  # the same, written twice
+    assert merge(["Clément", "Clémentine", "Charles Bor."]) == ["Clément", "Clémentine", "Charles Bor."]
+
+
+def test_more_saints_and_world_days_say_so_on_the_display():
+    forecast = meteo.Forecast("Lyon", WeatherData("sunny", 12), fetched=1.0)
+    now = datetime(2026, 11, 7, 12, 0, tzinfo=TZ)
+    names = ["Caren", "Carine", "Ernest", "Ernie", "Karelle", "Karen", "Karine"]
+    days = ["🌍 Journée mondiale A", "🌐 Journée internationale B", "🇫🇷 Journée nationale C"]
+    for part, extras, picked in (("saint", pages.Extras(saints=names), {"saints": names[:2]}),
+                                 ("world_days", pages.Extras(world_days=days), {"world_days": days[:2]})):
+        cfg = meteo.WEATHER_SCHEMA({"screens": [{"parts": {part: {}}}]})
+        all_of_them = meteo.WEATHER_SCHEMA({"screens": [{"parts": {part: {}}}],
+                                            "pick": {"date": "2026-11-07", **{k: names if k == "saints" else days
+                                                                              for k in picked}}})
+        first_two = meteo.page_list([forecast], cfg, extras, now)[0]
+        assert first_two["pages"][part]["more"], part
+        dots = meteo.render_meteo(forecast, now, cfg, page=first_two)
+        plain = {**first_two, "pages": {part: {**first_two["pages"][part], "more": False}}}
+        assert dots.tobytes() != meteo.render_meteo(forecast, now, cfg, page=plain).tobytes(), part  # « ... »
+        assert not meteo.page_list([forecast], all_of_them, extras, now)[0]["pages"][part]["more"], part
+    line = meteo._page_line({"kind": "saint", "names": ["Caren", "Carine"], "more": True}, now, {})
+    assert line == "BONNE FÊTE Caren, Carine ..."
+    assert pages.names_of([pages.Occurrence("Gwenaël, Gwenaelle, Hubert", None, None)]) == ["Gwenaël(le)", "Hubert"]
 
 
 def test_the_agenda_shows_the_whole_day_those_over_struck_through():
