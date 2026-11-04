@@ -368,8 +368,9 @@ const STYLE = `
   .empty { text-align: center; padding: 32px 0; }
   .wgrid { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
   /* The preview stays in view while the settings scroll; its parts are picked and dragged on it. */
-  .wside { position: sticky; top: calc(var(--top-h, 0px) + 8px); z-index: 3; flex: none; width: min(256px, 100%);
-    background: var(--card-background-color); padding-bottom: 4px; }
+  /* Stuck right under the header (its gap is its own padding): the settings scroll by out of sight. */
+  .wside { position: sticky; top: var(--top-h, 0px); z-index: 3; flex: none; width: min(256px, 100%);
+    background: var(--card-background-color); padding: 8px 0 4px; }
   .act.ghost.on { background: var(--primary-color); color: var(--text-primary-color, #fff); }
   .wled { width: 100%; aspect-ratio: 1; background: #000; border-radius: 8px; display: block; touch-action: none; cursor: pointer; }
   .wnums { gap: 3px; padding-bottom: 4px; }
@@ -390,6 +391,9 @@ const STYLE = `
   .wpart b { font-weight: 400; cursor: pointer; opacity: .7; }
   #wscreen input[type=number] { width: 60px; }
   @media (max-width: 600px) { .wside { width: 100%; } .wled { width: 160px; } }
+  /* Stacked above the settings (a phone), the preview and its screen editor are taller than the
+     screen: kept in place, they would hide the settings scrolling under them. */
+  @media (max-width: 640px) { .wside { position: static; } }
   .wform { flex: 1 1 280px; min-width: 0; }
   .wform .row b { min-width: 64px; }
   .wgroup { border: 1px solid var(--divider-color, #444); border-radius: 10px; margin: 0 0 8px; padding: 0 10px; }
